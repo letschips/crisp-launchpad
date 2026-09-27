@@ -9,18 +9,53 @@
   display: none !important;
 }
 
+/* --------------------------------------------------------------------------
+   Crisp shared design tokens — single source of truth for the Launchpad,
+   the Now board and the sidebar panel. Radius, spacing, motion and accent are
+   defined once here; the older `--pulse-ui-*` / `--now-accent` / `--lp-radius-*`
+   names are aliased onto these tokens so every existing rule converges on the
+   same values instead of drifting apart.
+   -------------------------------------------------------------------------- */
+.crisp-launchpad-view,
+.crisp-now-view,
+.crisp-launchpad-panel-view {
+  --crisp-accent: var(--interactive-accent, #6b84bf);
+  --crisp-surface: var(--background-primary);
+  --crisp-surface-soft: var(--background-secondary);
+  --crisp-border: var(--background-modifier-border);
+  /* 半径用确定值，不继承主题的缩放半径（本库 --radius-l 会被主题缩放到 25px，
+     那样 Now 看板与面板会比设计稿圆得多）。--crisp-radius-card 例外：
+     Launchpad 大卡片沿用主题半径，保持既有观感。 */
+  --crisp-radius-sm: 6px;
+  --crisp-radius: 8px;
+  --crisp-radius-lg: 12px;
+  --crisp-radius-card: var(--radius-l, 12px);
+  --crisp-radius-pill: 999px;
+  --crisp-space-xs: 4px;
+  --crisp-space-sm: 8px;
+  --crisp-space: 12px;
+  --crisp-space-lg: 16px;
+  --crisp-dur-fast: 120ms;
+  --crisp-dur: 160ms;
+  --crisp-ease: cubic-bezier(0.2, 0.6, 0.35, 1);
+  --crisp-glass-rim: rgba(255, 255, 255, 0.55);
+
+  /* Legacy aliases: keep old names resolving to the shared tokens. */
+  --pulse-ui-accent: var(--crisp-accent);
+  --now-accent: var(--crisp-accent);
+  --lp-radius-sm: var(--crisp-radius-sm);
+  --lp-radius-md: var(--crisp-radius);
+  --lp-radius-lg: var(--crisp-radius-lg);
+}
+
 /* Root container */
 .crisp-launchpad-view {
-  --pulse-ui-surface: var(--background-primary);
-  --pulse-ui-soft: var(--background-secondary);
-  --pulse-ui-border: var(--background-modifier-border);
-  --pulse-ui-accent: var(--interactive-accent, #6b84bf);
-  /* Crisp 派生令牌：圆角走 Obsidian 半径系统，颜色一律从 accent 派生，不硬编码 */
-  --lp-accent: var(--interactive-accent, #6b84bf);
-  --lp-radius-sm: var(--radius-s, 4px);
-  --lp-radius-md: var(--radius-m, 8px);
-  --lp-radius-lg: var(--radius-l, 12px);
-  --pulse-glass-rim: rgba(255, 255, 255, 0.55);
+  --pulse-ui-surface: var(--crisp-surface);
+  --pulse-ui-soft: var(--crisp-surface-soft);
+  --pulse-ui-border: var(--crisp-border);
+  /* Crisp 派生令牌：圆角走统一 token，颜色一律从 accent 派生，不硬编码 */
+  --lp-accent: var(--crisp-accent);
+  --pulse-glass-rim: var(--crisp-glass-rim);
   /* 不要在这里重新声明 --text-normal：自引用（var(--text-normal)）会构成循环，
      使该变量在计算值阶段失效，并且不会回退到主题继承值，文字会掉到浏览器初始色。 */
   --text-muted: color-mix(in srgb, var(--text-normal) 78%, transparent);
@@ -39,10 +74,10 @@
 
 /* Translucent mode (macOS Glassmorphism matching Crisp Pulse Modern) */
 body.theme-dark.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpad-view {
-  --pulse-ui-surface: color-mix(in srgb, var(--background-primary) 36%, transparent);
-  --pulse-ui-soft: color-mix(in srgb, var(--background-primary) 22%, transparent);
-  --pulse-ui-border: color-mix(in srgb, var(--text-normal) 14%, transparent);
-  --pulse-glass-rim: rgba(255, 255, 255, 0.18);
+  --crisp-surface: color-mix(in srgb, var(--background-primary) 36%, transparent);
+  --crisp-surface-soft: color-mix(in srgb, var(--background-primary) 22%, transparent);
+  --crisp-border: color-mix(in srgb, var(--text-normal) 14%, transparent);
+  --crisp-glass-rim: rgba(255, 255, 255, 0.18);
   --text-normal: #f1f2f6;
   --text-muted: rgba(235, 240, 250, 0.80);
   --text-faint: rgba(220, 225, 235, 0.54);
@@ -50,10 +85,10 @@ body.theme-dark.is-translucent:not(.is-popout-window):not(.is-popout-modal) .cri
 }
 
 body.theme-light.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpad-view {
-  --pulse-ui-surface: rgba(255, 255, 255, 0.82);
-  --pulse-ui-soft: rgba(248, 249, 250, 0.72);
-  --pulse-ui-border: rgba(0, 0, 0, 0.08);
-  --pulse-glass-rim: rgba(255, 255, 255, 0.95);
+  --crisp-surface: rgba(255, 255, 255, 0.82);
+  --crisp-surface-soft: rgba(248, 249, 250, 0.72);
+  --crisp-border: rgba(0, 0, 0, 0.08);
+  --crisp-glass-rim: rgba(255, 255, 255, 0.95);
   --text-normal: #1f2937;
   --text-muted: #4b5563;
   --text-faint: #6b7280;
@@ -63,10 +98,10 @@ body.theme-light.is-translucent:not(.is-popout-window):not(.is-popout-modal) .cr
 /* Dark theme fallback：毛玻璃关闭，或处于弹出窗口 / 模态时使用实色令牌。
    没有这一层时，深色主题下这两个场景只能依赖已被删除的自引用声明。 */
 body.theme-dark .crisp-launchpad-view {
-  --pulse-ui-surface: color-mix(in srgb, var(--background-primary) 92%, #ffffff);
-  --pulse-ui-soft: var(--background-primary);
-  --pulse-ui-border: color-mix(in srgb, var(--text-normal) 16%, transparent);
-  --pulse-glass-rim: rgba(255, 255, 255, 0.10);
+  --crisp-surface: color-mix(in srgb, var(--background-primary) 92%, #ffffff);
+  --crisp-surface-soft: var(--background-primary);
+  --crisp-border: color-mix(in srgb, var(--text-normal) 16%, transparent);
+  --crisp-glass-rim: rgba(255, 255, 255, 0.10);
   --text-normal: #ecedf1;
   --text-muted: rgba(236, 237, 241, 0.78);
   --text-faint: rgba(236, 237, 241, 0.52);
@@ -74,10 +109,10 @@ body.theme-dark .crisp-launchpad-view {
 
 /* Light Theme specifics */
 body.theme-light .crisp-launchpad-view {
-  --pulse-ui-surface: #ffffff;
-  --pulse-ui-soft: var(--background-secondary, #f8f9fa);
-  --pulse-ui-border: rgba(0, 0, 0, 0.08);
-  --pulse-glass-rim: rgba(255, 255, 255, 0.9);
+  --crisp-surface: #ffffff;
+  --crisp-surface-soft: var(--background-secondary, #f8f9fa);
+  --crisp-border: rgba(0, 0, 0, 0.08);
+  --crisp-glass-rim: rgba(255, 255, 255, 0.9);
   --text-normal: #1f2937;
   --text-muted: #4b5563;
   --text-faint: #6b7280;
@@ -159,12 +194,6 @@ body.theme-light .crisp-launchpad-view .launchpad-badge.is-accent {
   border-color: color-mix(in srgb, var(--pulse-ui-accent) 25%, transparent) !important;
 }
 
-body.theme-light .crisp-launchpad-view .launchpad-action-tag {
-  background: rgba(0, 0, 0, 0.04) !important;
-  color: #374151 !important;
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
-}
-
 body.theme-light .crisp-launchpad-view .launchpad-row-right {
   color: #4b5563 !important;
 }
@@ -192,14 +221,14 @@ body.theme-light .crisp-launchpad-view .launchpad-row-right {
 .crisp-launchpad-view .launchpad-card {
   background: var(--pulse-ui-surface);
   border: 1px solid var(--pulse-ui-border);
-  border-radius: var(--lp-radius-lg, 12px);
+  border-radius: var(--crisp-radius-card);
   box-shadow: inset 0 1px 0 var(--pulse-glass-rim), 0 6px 18px rgba(0, 0, 0, 0.08);
   padding: 22px 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--crisp-space-lg);
   position: relative;
-  transition: border-color 0.15s ease;
+  transition: border-color var(--crisp-dur) var(--crisp-ease);
 }
 
 body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpad-view .launchpad-card {
@@ -271,11 +300,8 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 }
 
 .crisp-launchpad-view .launchpad-hero-icon svg {
-  width: 19px;
-  height: 19px;
-  stroke: currentColor;
-  stroke-width: 2;
-  fill: none;
+  width: 20px;
+  height: 20px;
 }
 
 .crisp-launchpad-view .launchpad-hero-title {
@@ -287,13 +313,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   margin: 0;
 }
 
-.crisp-launchpad-view .launchpad-hero-subtitle {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 2px;
-  font-weight: 400;
-}
-
 .crisp-launchpad-view .launchpad-actions {
   display: flex;
   align-items: center;
@@ -301,8 +320,8 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   flex-wrap: wrap;
 }
 
-/* DSH Status Pill */
-.crisp-launchpad-view .launchpad-dsh-pill {
+/* 内核状态胶囊：报告本机 ANKS 内核（Sidecar/bin/anks）是否可用，不是别的插件的状态 */
+.crisp-launchpad-view .launchpad-kernel-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -421,6 +440,10 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   padding-top: 14px;
 }
 
+.crisp-launchpad-view .launchpad-today-status-card .launchpad-system-status {
+  padding-top: 0;
+}
+
 .crisp-launchpad-view .launchpad-system-status-main {
   display: flex;
   align-items: center;
@@ -502,6 +525,10 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 }
 
 .crisp-launchpad-view .launchpad-rhythm-header {
+  flex-wrap: wrap;
+}
+
+.crisp-launchpad-view .launchpad-pipeline-header {
   flex-wrap: wrap;
 }
 
@@ -619,11 +646,56 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   text-overflow: ellipsis;
 }
 
+.crisp-launchpad-view .launchpad-review-header {
+  flex-wrap: wrap;
+}
+
+.crisp-launchpad-view .launchpad-review-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.crisp-launchpad-view .launchpad-review-metric {
+  min-width: 0;
+  padding: 12px 13px;
+  border: 1px solid var(--pulse-ui-border);
+  border-radius: var(--lp-radius-md, 8px);
+  background: var(--pulse-ui-soft);
+}
+
+.crisp-launchpad-view .launchpad-review-metric-value {
+  color: var(--text-normal);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.crisp-launchpad-view .launchpad-review-metric-label {
+  margin-top: 4px;
+  color: var(--text-normal);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.crisp-launchpad-view .launchpad-review-metric-detail {
+  margin-top: 2px;
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 /* Two-column layout */
 .crisp-launchpad-view .launchpad-grid-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.crisp-launchpad-view .launchpad-grid-2 > * {
+  min-width: 0;
 }
 
 /* Keep the footer row pinned to the card bottom so both columns line up. */
@@ -708,33 +780,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   font-variant-numeric: tabular-nums;
 }
 
-/* Action Groups (Segmented Cluster in Card) */
-.crisp-launchpad-view .launchpad-action-sections {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.crisp-launchpad-view .launchpad-action-group {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.crisp-launchpad-view .launchpad-action-tag {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
-  border: 1px solid var(--pulse-ui-border);
-  padding: 3px 8px;
-  border-radius: 6px;
-  min-width: 48px;
-  text-align: center;
-  letter-spacing: 0.02em;
-}
-
 .crisp-launchpad-view .launchpad-action-group-buttons {
   display: flex;
   align-items: center;
@@ -742,7 +787,7 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   flex-wrap: wrap;
 }
 
-/* Action snapshot: Today / Waiting / Upcoming */
+/* Action snapshot: Today / Waiting / Upcoming / Anytime / Overdue */
 .crisp-launchpad-view .launchpad-action-counts {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -764,6 +809,25 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   border-left: none;
 }
 
+.crisp-launchpad-view .launchpad-action-count.is-clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--crisp-dur-fast) var(--crisp-ease);
+}
+
+.crisp-launchpad-view .launchpad-action-count.is-clickable:hover {
+  background: var(--background-modifier-hover);
+}
+
+.crisp-launchpad-view .launchpad-action-count.is-active {
+  background: var(--background-modifier-hover);
+}
+
+.crisp-launchpad-view .launchpad-action-count.is-active .launchpad-action-count-label {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
 .crisp-launchpad-view .launchpad-action-count-value {
   font-size: 20px;
   font-weight: 700;
@@ -772,9 +836,20 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   font-variant-numeric: tabular-nums;
 }
 
+.crisp-launchpad-view .launchpad-action-count.is-zero .launchpad-action-count-value {
+  color: var(--text-faint);
+  opacity: 0.6;
+}
+
 .crisp-launchpad-view .launchpad-action-count-label {
   font-size: 10px;
   color: var(--text-faint);
+}
+
+.crisp-launchpad-view .launchpad-action-body-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .crisp-launchpad-view .launchpad-action-grid {
@@ -795,6 +870,9 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 }
 
 .crisp-launchpad-view .launchpad-action-column-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
@@ -805,23 +883,50 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   min-height: 54px;
 }
 
+.crisp-launchpad-view .launchpad-action-list.is-single-column {
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.crisp-launchpad-view .launchpad-action-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 8px;
+  border-bottom: 1px dashed var(--pulse-ui-border);
+}
+
+.crisp-launchpad-view .launchpad-action-filter-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-normal);
+}
+
+.crisp-launchpad-view .launchpad-action-filter-reset {
+  padding: 2.5px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px solid var(--pulse-ui-border);
+  border-radius: 999px;
+  background: var(--pulse-ui-surface);
+  cursor: pointer;
+  transition: all var(--crisp-dur-fast) var(--crisp-ease);
+}
+
+.crisp-launchpad-view .launchpad-action-filter-reset:hover {
+  color: var(--text-normal);
+  border-color: var(--pulse-ui-border-hover, var(--text-muted));
+  background: var(--background-modifier-hover);
+}
+
 .crisp-launchpad-view .launchpad-action-item {
   padding-inline: 4px;
 }
 
 .crisp-launchpad-view .launchpad-action-status {
-  color: var(--text-faint);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-/* 矩阵数据源为空时的提示条：把"还没开始"与"坏掉了"区分开 */
-.crisp-launchpad-view .launchpad-rhythm-hint {
-  margin-top: 2px;
-  padding: 9px 12px;
-  border-radius: 9px;
-  border: 1px dashed color-mix(in srgb, var(--pulse-ui-border) 70%, transparent);
-  background: color-mix(in srgb, var(--text-normal) 4%, transparent);
   color: var(--text-faint);
   font-size: 11px;
   line-height: 1.5;
@@ -910,6 +1015,9 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   .crisp-launchpad-view .launchpad-kpi-row {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+  .crisp-launchpad-view .launchpad-review-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   .crisp-launchpad-view .launchpad-grid-2 {
     grid-template-columns: 1fr;
   }
@@ -926,6 +1034,9 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 
 @container launchpad (max-width: 560px) {
   .crisp-launchpad-view .launchpad-kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .crisp-launchpad-view .launchpad-review-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -945,7 +1056,7 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 .crisp-launchpad-view .launchpad-heat-weekday { text-align: right; }
 .crisp-launchpad-view .launchpad-heat-scroll {
   overflow-x: auto;
-  padding-bottom: 4px;
+  padding: 4px 6px 8px 6px;
 }
 
 .crisp-launchpad-view .launchpad-heat-wrap {
@@ -981,6 +1092,7 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   width: 26px;
   font-size: 10px;
   color: var(--text-faint);
+  padding: 4px 0;
 }
 
 .crisp-launchpad-view .launchpad-heat-weekdays > :nth-child(1) { grid-row: 1; }
@@ -994,8 +1106,8 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   grid-auto-columns: 13px;
   gap: 6px;
   justify-content: start;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  overflow: visible;
+  padding: 4px 0;
 }
 
 .crisp-launchpad-view .launchpad-heat-week {
@@ -1083,6 +1195,99 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   font-size: 10px;
 }
 
+/* 热力图的玩法：点某天 → 下方展开当天改动的文件清单 */
+.crisp-launchpad-view .launchpad-heat-cell.is-clickable {
+  cursor: pointer;
+}
+
+.crisp-launchpad-view .launchpad-heat-cell.is-selected {
+  position: relative;
+  z-index: 2;
+  outline: 2px solid var(--crisp-accent);
+  outline-offset: 1px;
+}
+
+.crisp-launchpad-view .launchpad-heat-detail {
+  margin-top: var(--crisp-space);
+  padding-top: var(--crisp-space-sm);
+  border-top: 1px solid var(--crisp-border);
+}
+
+.crisp-launchpad-view .launchpad-heat-detail-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.crisp-launchpad-view .launchpad-heat-detail-date {
+  color: var(--text-normal);
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.crisp-launchpad-view .launchpad-heat-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 220px;
+  margin-top: var(--crisp-space-sm);
+  overflow: auto;
+}
+
+.crisp-launchpad-view .launchpad-heat-detail-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--crisp-space-sm);
+  padding: 3px 6px;
+  border-radius: var(--crisp-radius-sm);
+  cursor: pointer;
+  transition: background-color var(--crisp-dur-fast) var(--crisp-ease);
+}
+
+.crisp-launchpad-view .launchpad-heat-detail-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.crisp-launchpad-view .launchpad-heat-detail-time {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.crisp-launchpad-view .launchpad-heat-detail-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crisp-launchpad-view .launchpad-heat-detail-path {
+  flex-shrink: 0;
+  max-width: 42%;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crisp-launchpad-view .launchpad-heat-detail-empty {
+  margin-top: var(--crisp-space-sm);
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.crisp-launchpad-view .launchpad-heat-detail-more {
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
 .crisp-launchpad-view .launchpad-heat-legend-cell {
   width: 10px;
   height: 10px;
@@ -1090,11 +1295,21 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 }
 
 /* --- 完成度：Crisp stat-box（替代对照对象的环形进度）--- */
+.crisp-launchpad-view .launchpad-rhythm-split {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
 .crisp-launchpad-view .launchpad-stat-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   min-width: 260px;
+}
+
+.crisp-launchpad-view .launchpad-stat-row[data-count="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .crisp-launchpad-view .launchpad-stat-box {
@@ -1135,9 +1350,7 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* --- 内容流向：Crisp distribution-bar（替代对照对象的桑基图）--- */
-.crisp-launchpad-view .launchpad-dist-wrap { display: flex; flex-direction: column; gap: 10px; }
-
+/* --- 内容流向：Crisp distribution-bar --- */
 .crisp-launchpad-view .launchpad-dist-bar {
   display: flex;
   height: 12px;
@@ -1148,26 +1361,23 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 
 .crisp-launchpad-view .launchpad-dist-seg { height: 100%; transition: width 0.3s ease; }
 
-.crisp-launchpad-view .launchpad-dist-legend { display: flex; flex-wrap: wrap; gap: 8px; }
-
-.crisp-launchpad-view .launchpad-dist-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  display: inline-block;
-  margin-right: 3px;
-}
-
 @container launchpad (max-width: 900px) {
   .crisp-launchpad-view .launchpad-rhythm-split { flex-direction: column; gap: 20px; }
   .crisp-launchpad-view .launchpad-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @container launchpad (max-width: 700px) {
-  .crisp-launchpad-view .launchpad-action-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .crisp-launchpad-view .launchpad-action-count { border-top: 1px solid var(--pulse-ui-border); }
-  .crisp-launchpad-view .launchpad-action-count:nth-child(-n + 2) { border-top: none; }
-  .crisp-launchpad-view .launchpad-action-count:nth-child(odd) { border-left: none; }
+  .crisp-launchpad-view .launchpad-action-counts {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .crisp-launchpad-view .launchpad-action-count {
+    min-height: 48px;
+    padding: 10px 4px;
+  }
+  .crisp-launchpad-view .launchpad-action-count-label {
+    font-size: 12px;
+    white-space: nowrap;
+  }
   .crisp-launchpad-view .launchpad-action-grid { grid-template-columns: 1fr; }
   .crisp-launchpad-view .launchpad-action-column { padding-right: 0; }
   .crisp-launchpad-view .launchpad-action-column + .launchpad-action-column {
@@ -1176,6 +1386,19 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
     margin-top: 14px;
     border-left: none;
     border-top: 1px solid var(--pulse-ui-border);
+  }
+}
+
+@container launchpad (max-width: 380px) {
+  .crisp-launchpad-view .launchpad-action-count {
+    padding: 8px 2px;
+  }
+  .crisp-launchpad-view .launchpad-action-count-value {
+    font-size: 18px;
+  }
+  .crisp-launchpad-view .launchpad-action-count-label {
+    font-size: 11px;
+    white-space: nowrap;
   }
 }
 
@@ -1269,11 +1492,11 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
 }
 
 /* Native modals live outside the ItemView, so their shell is intentionally unscoped. */
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal) {
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) {
   --lp-modal-accent: var(--interactive-accent, #6b84bf);
 }
 
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal) h2 {
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) h2 {
   margin-top: 0;
 }
 
@@ -1293,7 +1516,7 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   margin-top: 18px;
 }
 
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal) button.launchpad-btn {
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) button.launchpad-btn {
   min-height: 32px;
   height: auto;
   padding: 6px 13px;
@@ -1306,16 +1529,304 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   cursor: pointer;
 }
 
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal) button.launchpad-btn.is-accent {
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) button.launchpad-btn.is-accent {
   color: var(--lp-modal-accent);
   border-color: color-mix(in srgb, var(--lp-modal-accent) 38%, transparent);
   background: color-mix(in srgb, var(--lp-modal-accent) 12%, var(--background-primary));
 }
 
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal) button.launchpad-btn.is-primary {
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) button.launchpad-btn.is-primary {
   color: var(--text-on-accent, #fff);
   border-color: var(--lp-modal-accent);
   background: var(--lp-modal-accent);
+}
+
+/* --- Quick capture & edit modal: quick dates, date input & tag chips --- */
+.launchpad-quick-dates {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  margin-right: 6px;
+}
+
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) button.launchpad-btn.launchpad-btn-sm {
+  min-height: 27px;
+  height: 27px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.launchpad-date-input {
+  cursor: pointer;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--crisp-border, var(--background-modifier-border));
+  border-radius: var(--crisp-radius, 8px);
+  background: var(--crisp-surface-soft, var(--background-secondary));
+  color: var(--text-normal);
+  accent-color: var(--lp-modal-accent, var(--interactive-accent));
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+  transition:
+    border-color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease),
+    box-shadow var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease);
+}
+
+.launchpad-date-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.launchpad-date-control > :not(.launchpad-quick-dates):not(.launchpad-date-picker-trigger) {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.launchpad-date-control .launchpad-quick-dates {
+  flex: 0 0 auto;
+  margin-right: 0;
+}
+
+.launchpad-date-control .launchpad-date-input:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--lp-modal-accent, var(--interactive-accent)) 42%,
+    var(--crisp-border, var(--background-modifier-border))
+  );
+}
+
+.launchpad-date-control .launchpad-date-input:focus {
+  border-color: var(--lp-modal-accent, var(--interactive-accent));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 22%, transparent);
+  outline: none;
+}
+
+button.launchpad-date-picker-trigger {
+  display: inline-flex;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--crisp-border, var(--background-modifier-border));
+  border-radius: var(--crisp-radius, 8px);
+  background: var(--crisp-surface-soft, var(--background-secondary));
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease),
+    border-color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease),
+    background-color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease);
+}
+
+button.launchpad-date-picker-trigger:hover,
+button.launchpad-date-picker-trigger:focus-visible {
+  border-color: var(--lp-modal-accent, var(--interactive-accent));
+  background: color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 10%, var(--background-primary));
+  color: var(--lp-modal-accent, var(--interactive-accent));
+}
+
+.launchpad-date-picker-popover {
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
+  width: min(304px, calc(100vw - 16px));
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: var(--shadow-l, 0 12px 32px rgba(0, 0, 0, 0.28));
+  font-family: var(--font-interface);
+}
+
+.launchpad-date-picker-header {
+  display: grid;
+  grid-template-columns: 34px 1fr 34px;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.launchpad-date-picker-month {
+  color: var(--text-normal);
+  font-size: 14px;
+  font-weight: 650;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+button.launchpad-date-picker-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+button.launchpad-date-picker-nav:hover {
+  border-color: var(--background-modifier-border);
+  background: var(--background-modifier-hover);
+  color: var(--lp-modal-accent, var(--interactive-accent));
+}
+
+.launchpad-date-picker-weekdays,
+.launchpad-date-picker-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.launchpad-date-picker-weekdays {
+  margin-bottom: 4px;
+}
+
+.launchpad-date-picker-weekday {
+  display: grid;
+  min-height: 26px;
+  place-items: center;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 550;
+}
+
+button.launchpad-date-picker-day {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-normal);
+  box-shadow: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease),
+    background-color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease),
+    border-color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease);
+}
+
+button.launchpad-date-picker-day:hover,
+button.launchpad-date-picker-day:focus-visible {
+  border-color: color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 36%, transparent);
+  background: color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 12%, var(--background-primary));
+  color: var(--lp-modal-accent, var(--interactive-accent));
+  outline: none;
+}
+
+button.launchpad-date-picker-day.is-outside-month {
+  color: var(--text-faint);
+  opacity: 0.62;
+}
+
+button.launchpad-date-picker-day.is-today:not(.is-selected) {
+  border-color: color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 55%, transparent);
+  color: var(--lp-modal-accent, var(--interactive-accent));
+  font-weight: 650;
+}
+
+button.launchpad-date-picker-day.is-selected,
+button.launchpad-date-picker-day.is-selected:hover {
+  border-color: var(--lp-modal-accent, var(--interactive-accent));
+  background: var(--lp-modal-accent, var(--interactive-accent));
+  color: var(--text-on-accent, #fff);
+  opacity: 1;
+  font-weight: 650;
+}
+
+.launchpad-date-picker-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.launchpad-date-picker-footer button.launchpad-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 5px 11px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.launchpad-date-picker-footer button.launchpad-btn:hover {
+  border-color: color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 45%, var(--background-modifier-border));
+}
+
+.launchpad-date-picker-footer button.launchpad-btn.is-primary {
+  border-color: var(--lp-modal-accent, var(--interactive-accent));
+  background: var(--lp-modal-accent, var(--interactive-accent));
+  color: var(--text-on-accent, #fff);
+}
+
+body.is-mobile .launchpad-date-control .launchpad-quick-dates {
+  flex-basis: 100%;
+}
+
+.launchpad-tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: -6px;
+  margin-bottom: 14px;
+  padding-left: 2px;
+}
+
+button.launchpad-tag-chip {
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--crisp-dur-fast) var(--crisp-ease);
+}
+
+button.launchpad-tag-chip:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+  border-color: var(--pulse-ui-border-hover, var(--text-muted));
+}
+
+button.launchpad-tag-chip.is-active {
+  color: var(--pulse-ui-accent);
+  border-color: var(--pulse-ui-accent);
+  background: color-mix(in srgb, var(--pulse-ui-accent) 12%, transparent);
+  font-weight: 600;
 }
 
 .launchpad-modal-preview {
@@ -1359,6 +1870,11 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   color: var(--text-success);
 }
 
+.launchpad-onboarding-check.is-missing {
+  border-color: rgba(var(--color-red-rgb, 239, 68, 68), 0.35);
+  background: rgba(var(--color-red-rgb, 239, 68, 68), 0.05);
+}
+
 .launchpad-onboarding-label {
   color: var(--text-normal);
   font-size: 12px;
@@ -1374,8 +1890,7 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
 
 /* Crisp Now action board */
 .crisp-now-view {
-  --now-accent: var(--interactive-accent, #6b84bf);
-  background: var(--background-secondary);
+  background: var(--crisp-surface-soft);
   padding: 20px 28px 56px;
   overflow: auto;
 }
@@ -1384,27 +1899,30 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   padding: 0 !important;
 }
 
-.crisp-now-view button.launchpad-btn {
+.crisp-now-view button.launchpad-btn,
+.crisp-launchpad-panel-view button.launchpad-btn {
   min-height: 32px;
   height: auto;
-  padding: 6px 13px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-primary);
+  padding: var(--crisp-space-xs) var(--crisp-space);
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius);
+  background: var(--crisp-surface);
   color: var(--text-normal);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
 }
 
-.crisp-now-view button.launchpad-btn:hover {
+.crisp-now-view button.launchpad-btn:hover,
+.crisp-launchpad-panel-view button.launchpad-btn:hover {
   background: var(--background-modifier-hover);
 }
 
-.crisp-now-view button.launchpad-btn.is-primary {
+.crisp-now-view button.launchpad-btn.is-primary,
+.crisp-launchpad-panel-view button.launchpad-btn.is-primary {
   color: var(--text-on-accent, #fff);
-  border-color: var(--now-accent);
-  background: var(--now-accent);
+  border-color: var(--crisp-accent);
+  background: var(--crisp-accent);
 }
 
 .now-board {
@@ -1446,6 +1964,11 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   background: color-mix(in srgb, var(--now-accent) 12%, var(--background-primary));
 }
 
+.now-board-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
 .now-board-heading {
   color: var(--text-normal);
   font-size: 20px;
@@ -1467,15 +1990,15 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
 
 .now-board-stats {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--crisp-space-sm);
 }
 
 .now-board-stat {
-  padding: 12px 14px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 9px;
-  background: var(--background-primary);
+  padding: var(--crisp-space) calc(var(--crisp-space) + 2px);
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius);
+  background: var(--crisp-surface);
 }
 
 .now-board-stat-value {
@@ -1493,8 +2016,9 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
 
 .now-board-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(6, minmax(180px, 1fr));
+  align-items: start;
+  gap: var(--crisp-space);
   overflow-x: auto;
   padding-bottom: 4px;
 }
@@ -1502,18 +2026,26 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
 .now-board-column {
   min-width: 180px;
   min-height: 180px;
-  padding: 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--background-primary) 82%, transparent);
+  padding: var(--crisp-space);
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius-lg);
+  background: color-mix(in srgb, var(--crisp-surface) 82%, transparent);
+  transition: border-color var(--crisp-dur) var(--crisp-ease),
+    background-color var(--crisp-dur) var(--crisp-ease);
 }
 
-.now-board-column.is-overdue {
-  border-color: color-mix(in srgb, var(--text-error) 28%, var(--background-modifier-border));
+.now-board-column.is-overdue.has-tasks {
+  border-color: color-mix(in srgb, var(--text-error) 45%, var(--background-modifier-border));
 }
 
-.now-board-column.is-today {
-  border-color: color-mix(in srgb, var(--now-accent) 36%, var(--background-modifier-border));
+.now-board-column.is-today.has-tasks {
+  border-color: color-mix(in srgb, var(--now-accent) 45%, var(--background-modifier-border));
+}
+
+.now-board-column.is-dragover {
+  border-color: var(--now-accent) !important;
+  background: color-mix(in srgb, var(--now-accent) 10%, var(--background-primary)) !important;
+  box-shadow: inset 0 0 0 1px var(--now-accent);
 }
 
 .now-board-column-header {
@@ -1526,6 +2058,38 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   font-weight: 650;
 }
 
+.now-board-column-header.is-collapsible {
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.now-board-column-header.is-collapsible:hover {
+  color: var(--now-accent);
+}
+
+.now-board-column-header.is-collapsible:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--now-accent) 65%, transparent);
+  outline-offset: 3px;
+}
+
+.now-board-column-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.now-board-column-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+}
+
+.now-board-column-toggle-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
 .now-board-count {
   min-width: 22px;
   padding: 2px 6px;
@@ -1535,28 +2099,79 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   text-align: center;
 }
 
-.now-board-list,
-.now-completed-list {
+.now-board-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--crisp-space-sm);
+}
+
+.now-board-column.is-done.has-tasks {
+  border-color: color-mix(in srgb, var(--text-faint) 40%, var(--background-modifier-border));
+}
+
+.now-board-column.is-done.is-collapsed {
+  align-self: start;
+  min-height: 0;
+}
+
+.now-board-column.is-done.is-expanded {
+  max-height: min(68vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.now-board-column.is-done.is-expanded .now-board-column-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-block: 4px;
+  background: var(--crisp-surface);
+}
+
+.now-board-done-summary {
+  padding: 2px 0 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.now-board-column.is-done .now-task-card {
+  cursor: pointer;
+}
+
+.now-board-column.is-done .now-task-title {
+  color: var(--text-muted);
+}
+
+.now-task-done-at {
+  color: var(--text-faint);
 }
 
 .now-task-card {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  padding: 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-primary);
-  cursor: pointer;
-  transition: border-color 0.14s ease, transform 0.14s ease;
+  padding: var(--crisp-space-sm);
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius);
+  background: var(--crisp-surface);
+  cursor: grab;
+  transition: border-color var(--crisp-dur-fast) var(--crisp-ease),
+    opacity var(--crisp-dur-fast) var(--crisp-ease);
+}
+
+.now-task-card:active {
+  cursor: grabbing;
+}
+
+.now-task-card.is-dragging {
+  opacity: 0.35;
+  border-style: dashed;
 }
 
 .now-task-card:hover {
   border-color: color-mix(in srgb, var(--now-accent) 35%, var(--background-modifier-border));
-  transform: translateY(-1px);
 }
 
 .now-task-checkbox {
@@ -1616,21 +2231,41 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   text-align: center;
 }
 
-.now-completed {
-  padding: 12px 14px;
+.launchpad-badge.is-warning {
+  color: var(--text-warning, #d97706);
+  border-color: color-mix(in srgb, var(--text-warning, #d97706) 32%, transparent);
+  background: color-mix(in srgb, var(--text-warning, #d97706) 12%, transparent);
+}
+
+.crisp-now-presets {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.crisp-now-preset-btn {
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  background: var(--background-primary);
-}
-
-.now-completed summary {
+  background: var(--background-secondary);
   color: var(--text-muted);
-  font-size: 12px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
-.now-completed-list {
-  margin-top: 12px;
+.crisp-now-preset-btn:hover {
+  border-color: var(--now-accent);
+  color: var(--text-normal);
+  background: color-mix(in srgb, var(--now-accent) 10%, var(--background-primary));
+}
+
+.crisp-now-preset-btn.is-active {
+  border-color: var(--now-accent);
+  background: var(--now-accent);
+  color: var(--text-on-accent, #fff);
 }
 
 @media (max-width: 900px) {
@@ -1641,4 +2276,397 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   .now-board-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+body.is-mobile .crisp-launchpad-view {
+  /* Keep the final card above Obsidian's bottom navbar and the iOS home-indicator inset. */
+  padding: 12px 12px calc(68px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+body.is-mobile .crisp-launchpad-view .launchpad-card {
+  padding: 16px;
+}
+
+body.is-mobile .crisp-launchpad-view .launchpad-card-header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+body.is-mobile .crisp-launchpad-view .launchpad-card-title {
+  white-space: normal;
+}
+
+body.is-mobile .crisp-launchpad-view .launchpad-actions,
+body.is-mobile .crisp-now-view .now-board-actions {
+  width: 100%;
+}
+
+body.is-mobile .crisp-launchpad-view button.launchpad-btn,
+body.is-mobile .crisp-now-view button.launchpad-btn {
+  flex: 0 1 auto;
+}
+
+body.is-mobile .crisp-now-view {
+  padding: 12px 12px 42px;
+}
+
+body.is-mobile .crisp-now-view .now-board-header {
+  padding: 16px;
+}
+
+body.is-mobile .crisp-now-view .now-board-grid {
+  grid-template-columns: 1fr;
+  min-width: 0;
+  overflow-x: visible;
+}
+
+body.is-mobile .crisp-now-view .now-board-column {
+  min-width: 0;
+  min-height: 0;
+}
+
+body.is-mobile .crisp-now-view .now-board-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body.is-mobile :is(
+  .crisp-launchpad-quick-modal,
+  .crisp-launchpad-convert-modal,
+  .crisp-launchpad-onboarding-modal,
+  .crisp-now-edit-modal,
+  .crisp-content-project-modal
+) .launchpad-modal-actions {
+  align-items: stretch;
+}
+
+body.is-mobile :is(
+  .crisp-launchpad-quick-modal,
+  .crisp-launchpad-convert-modal,
+  .crisp-launchpad-onboarding-modal,
+  .crisp-now-edit-modal,
+  .crisp-content-project-modal
+) .launchpad-modal-actions button {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting .setting-item-info {
+  flex: 0 0 auto;
+  max-width: none;
+  width: 100%;
+}
+
+body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting .setting-item-control {
+  flex: 1 1 auto;
+  margin-inline-start: 0;
+  max-width: none;
+  width: 100%;
+}
+
+body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting textarea {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  max-width: none;
+  min-width: 0;
+  width: 100%;
+}
+
+.launchpad-empty-tip {
+  padding: 12px 14px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--text-error);
+  background: rgba(var(--color-red-rgb, 230, 75, 75), 0.08);
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+  margin: 12px 0;
+}
+
+.crisp-launchpad-view .launchpad-action-card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* --------------------------------------------------------------------------
+   今天页：系统状态折叠区（首屏优先「今天做什么」，系统状态退到第二层）
+   -------------------------------------------------------------------------- */
+.crisp-launchpad-view .launchpad-system-drawer {
+  display: block;
+}
+
+.crisp-launchpad-view .launchpad-system-drawer-summary {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  list-style: none;
+}
+
+.crisp-launchpad-view .launchpad-system-drawer-summary::-webkit-details-marker {
+  display: none;
+}
+
+.crisp-launchpad-view .launchpad-system-drawer-summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 14px;
+  color: var(--text-faint);
+  transition: transform var(--crisp-dur) var(--crisp-ease);
+}
+
+.crisp-launchpad-view .launchpad-system-drawer[open] > .launchpad-system-drawer-summary::before {
+  transform: rotate(90deg);
+}
+
+.crisp-launchpad-view .launchpad-system-drawer-body {
+  margin-top: var(--crisp-space);
+}
+
+/* --------------------------------------------------------------------------
+   Crisp 行动面板（右侧栏统一入口：今天 / 速记 / 新建行动 / 收藏）
+   -------------------------------------------------------------------------- */
+.crisp-launchpad-panel-view {
+  padding: var(--crisp-space) var(--crisp-space) 32px !important;
+  background: var(--crisp-surface-soft);
+  color: var(--text-normal);
+  font-family: var(--font-interface);
+  overflow: auto;
+}
+
+.crisp-panel-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--crisp-space-sm);
+  padding: var(--crisp-space);
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius-lg);
+  background: var(--crisp-surface);
+  margin-bottom: var(--crisp-space);
+}
+
+.crisp-panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--crisp-space-sm);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.crisp-panel-subtitle {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.crisp-panel-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--crisp-space-sm);
+}
+
+.crisp-panel-stat {
+  padding: var(--crisp-space-sm);
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius);
+  background: var(--crisp-surface-soft);
+}
+
+.crisp-panel-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.crisp-panel-stat-label {
+  margin-top: 2px;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.crisp-panel-section {
+  padding: var(--crisp-space);
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius-lg);
+  background: var(--crisp-surface);
+  margin-bottom: var(--crisp-space);
+}
+
+.crisp-panel-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--crisp-space-sm);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.crisp-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--crisp-space-sm);
+}
+
+.crisp-panel-task {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--crisp-space-sm);
+  padding: var(--crisp-space-sm);
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius);
+  background: var(--crisp-surface-soft);
+  cursor: pointer;
+  transition: border-color var(--crisp-dur-fast) var(--crisp-ease);
+}
+
+.crisp-panel-task:hover {
+  border-color: color-mix(in srgb, var(--crisp-accent) 40%, var(--crisp-border));
+}
+
+.crisp-panel-task-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.crisp-panel-task-title {
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.crisp-panel-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.crisp-panel-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--crisp-space-sm);
+}
+
+.crisp-panel-actions button {
+  width: 100%;
+}
+
+.crisp-panel-empty {
+  padding: 12px 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: center;
+}
+
+.crisp-panel-bookmark {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--crisp-space-sm);
+  padding: 7px 8px;
+  border-radius: var(--crisp-radius-sm);
+  cursor: pointer;
+  transition: background-color var(--crisp-dur-fast) var(--crisp-ease);
+}
+
+.crisp-panel-bookmark:hover {
+  background: var(--crisp-surface-soft);
+}
+
+.crisp-panel-bookmark-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crisp-panel-bookmark-kind {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+/* --- 面板内 tab：今天 / 捕获 / 待整理 / 收藏 --- */
+.crisp-panel-tabs {
+  display: flex;
+  gap: var(--crisp-space-xs);
+  margin-bottom: var(--crisp-space-sm);
+}
+
+.crisp-panel-tab {
+  flex: 1;
+  padding: 6px 4px;
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius-pill);
+  background: var(--crisp-surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color var(--crisp-dur-fast) var(--crisp-ease),
+    background-color var(--crisp-dur-fast) var(--crisp-ease);
+}
+
+.crisp-panel-tab.is-active {
+  border-color: var(--crisp-accent);
+  background: color-mix(in srgb, var(--crisp-accent) 14%, transparent);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.crisp-panel-body {
+  display: block;
+}
+
+/* --- 捕获 tab --- */
+.crisp-panel-types {
+  display: flex;
+  gap: var(--crisp-space-xs);
+  margin-bottom: var(--crisp-space-sm);
+}
+
+.crisp-panel-type {
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius-sm);
+  background: var(--crisp-surface-soft);
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.crisp-panel-type.is-active {
+  border-color: var(--crisp-accent);
+  background: color-mix(in srgb, var(--crisp-accent) 12%, transparent);
+  color: var(--text-normal);
+}
+
+.crisp-panel-capture-input {
+  width: 100%;
+  min-height: 76px;
+  padding: var(--crisp-space-sm);
+  border: 1px solid var(--crisp-border);
+  border-radius: var(--crisp-radius);
+  background: var(--crisp-surface-soft);
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.crisp-panel-capture-hint {
+  margin: var(--crisp-space-sm) 0;
+  color: var(--text-faint);
+  font-size: 10px;
+  word-break: break-all;
 }

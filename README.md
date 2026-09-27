@@ -1,10 +1,10 @@
 # Crisp Launchpad
 
-Native Obsidian launchpad prototype for ANKS.
+Native Obsidian launchpad for ANKS.
 
-This plugin replaces the DataviewJS launchpad as the long-term interface
-direction while keeping the existing `00-启动台.md` as a fallback during
-acceptance testing.
+This plugin replaces the DataviewJS launchpad. The former `00-启动台.md` is
+retired and archived under `.personal-os-backups/`; the native views are the
+only interfaces.
 
 ## Features
 
@@ -17,6 +17,11 @@ acceptance testing.
 - One-click inbox conversion to action or topic card.
 - First-run onboarding and local environment repair.
 - Native Crisp Now action board backed by `Now/行动.md`.
+- Native creation and stage progression for ANKS content projects.
+- Direct linkage to the prepared Crisp Base content overview.
+- Opt-in event bridge for safe routing and snapshot synchronization.
+- Unified review tab that generates the next deduplicated batch of Now actions.
+- Mobile-compatible capture, Now board (tap-to-reschedule presets for touch, cross-column drag for desktop), content project editing, and responsive layouts.
 - Content pipeline, inbox, recent outputs, knowledge activity, and navigation.
 - Explicit snapshot refresh through `Sidecar/bin/anks`.
 - No network dependency.
@@ -25,7 +30,8 @@ acceptance testing.
 
 - Obsidian 1.6.0 or later.
 - ANKS vault with `Sidecar/bin/anks`.
-- macOS / POSIX for one-click snapshot refresh.
+- macOS / POSIX for one-click snapshot refresh and the automatic event bridge.
+- Mobile supports Markdown-native capture and Now/content edits (with quick preset rescheduling on touch devices); CLI-backed refresh stays desktop-only.
 
 ## Development
 
@@ -38,4 +44,4 @@ into `.obsidian/plugins/crisp-launchpad/`.
 
 ## Status
 
-`0.1.0` is a local prototype. It is not a public Crisp Suite release.
+`0.2.13` is the latest Crisp Suite release.
