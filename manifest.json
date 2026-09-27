@@ -1,0 +1,10 @@
+{
+  "id": "crisp-launchpad",
+  "name": "Crisp Launchpad",
+  "version": "0.1.0",
+  "minAppVersion": "1.6.0",
+  "description": "Native ANKS launchpad for system status, actions, content flow and vault navigation.",
+  "author": "letschips",
+  "authorUrl": "https://github.com/letschips",
+  "isDesktopOnly": true
+}
