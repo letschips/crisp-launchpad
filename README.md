@@ -44,4 +44,4 @@ into `.obsidian/plugins/crisp-launchpad/`.
 
 ## Status
 
-`0.2.13` is the latest Crisp Suite release.
+`0.2.13` is prepared as a release candidate; public release is pending.
