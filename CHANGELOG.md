@@ -5,6 +5,9 @@
 - Read the action card from current Now files on desktop as well as mobile, so equal-count edits and emptied action files cannot be hidden by a stale snapshot.
 - Refresh local views after vault creation, modification, rename, and deletion even when CLI automation is disabled; coalesce duplicate metadata events.
 - Add render and vault-event regressions for stale action data and disabled automation.
+- Review suggestions now also deduplicate against actions completed in the last 14 days. Ticking an action does not clear the ANKS finding behind it (`knowledge_writeback`, inbox status), so the same first two write-back and inbox items were regenerated on every click and later findings never surfaced.
+- The event bridge rebuilds `content-projects/index.md` when a project is deleted, renamed, or edited outside the plugin, so the derived index no longer keeps links to removed projects (`BROKEN_LINK_PATH`).
+- Creating or advancing a content project now re-materializes `project.md` before rebuilding snapshots. `anks_core` reads `project.md` first, so the old order built the content snapshot from the previous stage.
 
 ## [0.2.12] - 2026-09-23
 

@@ -1872,3 +1872,113 @@ test("N4: 静默窗口内的其他 Now 文件事件仍会进入待刷新队列",
   clearTimeout(plugin.autoSyncTimer);
   clearTimeout(plugin.refreshTimer);
 });
+
+test("复盘建议：近期已完成的同名行动也参与去重，队列向后推进", () => {
+  const health = {
+    findings: [
+      { code: "PENDING_WRITEBACK", severity: "operational", path: "Topics/t/outputs/a.md" },
+      { code: "PENDING_WRITEBACK", severity: "operational", path: "Topics/t/outputs/b.md" },
+      { code: "PENDING_WRITEBACK", severity: "operational", path: "Topics/t/outputs/c.md" },
+      { code: "STALE_INBOX", severity: "operational", path: "Topics/t/raw/inbox/x.md" },
+    ],
+  };
+  const today = new Date(2026, 8, 29);
+  const texts = (tasks) =>
+    launchpad.suggestReviewActions({ tasks, health, today }).map((item) => item.text);
+
+  // 勾掉 a 并不会清掉 health 的 finding；两周内不应再生成同一条
+  const recent = texts([{ title: "回写待提炼：a", done: true, doneAt: "2026-09-28" }]);
+  assert.ok(!recent.includes("回写待提炼：a"));
+  assert.deepEqual(recent.slice(0, 2), ["回写待提炼：b", "回写待提炼：c"]);
+
+  // 旧标签「的发布内容」同样识别
+  const legacy = texts([{ title: "回写待提炼的发布内容：a", done: true, doneAt: "2026-09-28" }]);
+  assert.ok(!legacy.includes("回写待提炼：a"));
+
+  // 超过冷却期、或完成日期未知的已完成行动不挡：finding 仍在就再提醒
+  const old = texts([{ title: "回写待提炼：a", done: true, doneAt: "2026-09-01" }]);
+  assert.equal(old[0], "回写待提炼：a");
+  const undated = texts([{ title: "回写待提炼：a", done: true, doneAt: "" }]);
+  assert.equal(undated[0], "回写待提炼：a");
+});
+
+test("内容索引：项目目录内的增删改才触发 index 重建，index.md 本身不自触发", () => {
+  const topicOf = launchpad.contentIndexTopicForPath;
+  assert.equal(topicOf("Topics/self-media/content-projects/WECHAT-1/project.yaml"), "self-media");
+  assert.equal(topicOf("Topics/self-media/content-projects/WECHAT-1/assets/a.png"), "self-media");
+  assert.equal(topicOf("Topics/studio/content-projects/P"), "studio", "删除整个目录时路径是文件夹");
+  assert.equal(topicOf("Topics/self-media/content-projects/index.md"), "");
+  assert.equal(topicOf("Topics/self-media/content-projects/README.md"), "");
+  assert.equal(topicOf("Topics/self-media/knowledge/a.md"), "");
+  assert.equal(topicOf(undefined), "");
+});
+
+test("事件桥：删除项目目录会先重建对应 Topic 的 content index，再建快照", async () => {
+  const calls = [];
+  const plugin = Object.assign(Object.create(launchpad.prototype), {
+    settings: { autoRouteEnabled: true },
+    canRunAnks: () => true,
+    unloaded: false,
+    autoSyncRunning: false,
+    autoSyncDirty: { actions: false, knowledge: false, snapshot: false },
+    autoSyncIgnoreUntil: 0,
+    healthRebuildTimer: null,
+    refreshViews: () => {},
+    runAnks: async (args) => {
+      calls.push(args.join(" "));
+    },
+  });
+  plugin.handleAutoRouteCandidate({ path: "Topics/self-media/content-projects/OLD-PROJECT" });
+  plugin.handleAutoRouteCandidate({ path: "Topics/self-media/content-projects/OLD-PROJECT/article.md" });
+  plugin.handleAutoRouteCandidate({ path: "Topics/self-media/content-projects/index.md" });
+  clearTimeout(plugin.autoSyncTimer);
+  clearTimeout(plugin.refreshTimer);
+  assert.equal(plugin.autoSyncDirty.snapshot, true);
+  await plugin.runEventBridgeSync();
+  clearTimeout(plugin.healthRebuildTimer);
+  assert.deepEqual(calls, [
+    "content index --topic self-media",
+    "snapshot build --only content,index",
+  ]);
+  calls.length = 0;
+  plugin.autoSyncDirty.snapshot = true;
+  await plugin.runEventBridgeSync();
+  clearTimeout(plugin.healthRebuildTimer);
+  assert.deepEqual(calls, ["snapshot build --only content,index"], "index 队列消费后清空");
+});
+
+test("推进内容项目：先重新物化控制卡，再重建系统快照", async () => {
+  const calls = [];
+  const { TFile } = mockObsidian;
+  const files = new Map();
+  for (const name of ["project.yaml", "article.md", "publish.md"]) {
+    const file = new TFile();
+    file.path = `Topics/studio/content-projects/P-1/${name}`;
+    files.set(file.path, { file, content: "---\nstage: drafting\nstatus: active\n---\n" });
+  }
+  const plugin = Object.assign(Object.create(launchpad.prototype), {
+    settings: { allowSnapshotRefresh: true },
+    canRunAnks: () => true,
+    app: {
+      vault: {
+        getAbstractFileByPath: (path) => files.get(path)?.file || null,
+        read: async (file) => files.get(file.path).content,
+        modify: async (file, content) => {
+          files.get(file.path).content = content;
+        },
+      },
+    },
+    refreshViews: () => {},
+    runAnks: async (args) => {
+      calls.push(args.join(" "));
+    },
+  });
+  await plugin.updateContentProject("Topics/studio/content-projects/P-1", {
+    stage: "reviewing",
+    status: "published",
+  });
+  const card = calls.findIndex((call) => call.startsWith("content control-card P-1"));
+  const snapshot = calls.indexOf("snapshot build");
+  assert.ok(card >= 0 && snapshot >= 0, calls.join(" | "));
+  assert.ok(card < snapshot, `控制卡须先于快照：${calls.join(" | ")}`);
+});

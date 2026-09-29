@@ -92,6 +92,7 @@ const TOTAL_HEATMAP_WEEKS = 53;
 const AUTO_ROUTE_DEBOUNCE_MS = 1800;
 const AUTO_ROUTE_COOLDOWN_MS = 2500;
 const AUTO_HEALTH_REBUILD_MS = 90 * 1000;
+const REVIEW_DONE_COOLDOWN_DAYS = 14;
 const REMINDER_INTERVAL_MS = 30 * 1000;
 const REMINDER_START_DELAY_MS = 4000;
 const REMINDER_GRACE_MS = 12 * 60 * 60 * 1000;
@@ -1174,6 +1175,15 @@ function eventBridgeKind(path) {
   return "";
 }
 
+/* 返回需要重建 content-projects/index.md 的 Topic：路径必须落在某个项目目录内
+   （含目录本身）。index.md 与 content-projects 根下的其它文件不算，避免重建自我触发。 */
+function contentIndexTopicForPath(path) {
+  const match = textOr(path).match(/^Topics\/([^/]+)\/content-projects\/([^/]+)(\/|$)/);
+  if (!match) return "";
+  if (!match[3] && /\.[a-z0-9]+$/i.test(match[2])) return "";
+  return match[1];
+}
+
 const GENERIC_DOC_NAMES = new Set([
   "article",
   "index",
@@ -1232,12 +1242,19 @@ function suggestReviewActions({
   health = null,
   contentProjects = [],
   max = 5,
+  today = new Date(),
 } = {}) {
   const healthData = health?.data || health || {};
   const findings = Array.isArray(healthData.findings) ? healthData.findings : [];
+  /* 勾掉行动不会改写 health 的真源（knowledge_writeback / 收件箱状态），
+     finding 仍在。只按未完成去重时，同一批前几条会被无限重复生成，后面的
+     finding 永远排不上。近期完成的行动也算已处理，让队列往后推进。 */
+  const cooldownStart = dateKey(
+    new Date(today.getTime() - REVIEW_DONE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000),
+  );
   const existing = new Set(
     tasks
-      .filter((task) => !task.done)
+      .filter((task) => !task.done || (isDateKey(task.doneAt) && task.doneAt >= cooldownStart))
       .map((task) => normalizeActionKey(task.title))
       .filter(Boolean),
   );
@@ -4926,6 +4943,7 @@ class CrispLaunchpadPlugin extends Plugin {
     this.autoSyncTimer = null;
     this.autoSyncRunning = false;
     this.autoSyncDirty = { actions: false, knowledge: false, snapshot: false };
+    this.autoSyncIndexTopics = new Set();
     this.autoSyncIgnoreUntil = 0;
     this.autoSyncLastError = "";
     this.autoSyncLastErrorAt = 0;
@@ -5237,7 +5255,10 @@ class CrispLaunchpadPlugin extends Plugin {
 
   handleAutoRouteCandidate(file) {
     if (this.unloaded) return;
-    const kind = eventBridgeKind(file?.path);
+    const indexTopic = contentIndexTopicForPath(file?.path);
+    // 删除整个项目目录时事件路径是文件夹（无扩展名），eventBridgeKind 不认，
+    // 但派生的 content-projects/index.md 仍需重建。
+    const kind = eventBridgeKind(file?.path) || (indexTopic ? "snapshot" : "");
     if (!kind) return;
     // Local views must follow deletions/renames even when CLI automation is off
     // (including mobile). Merge vault and metadata events into one render.
@@ -5247,6 +5268,7 @@ class CrispLaunchpadPlugin extends Plugin {
     }, 1200);
     if (!this.settings.autoRouteEnabled || !this.canRunAnks()) return;
     this.autoSyncDirty[kind] = true;
+    if (indexTopic) (this.autoSyncIndexTopics ||= new Set()).add(indexTopic);
     if (this.autoSyncRunning) {
       return;
     }
@@ -5268,10 +5290,18 @@ class CrispLaunchpadPlugin extends Plugin {
     }
     const pending = { ...this.autoSyncDirty };
     this.autoSyncDirty = { actions: false, knowledge: false, snapshot: false };
+    const indexTopics = [...(this.autoSyncIndexTopics || [])];
+    this.autoSyncIndexTopics = new Set();
     if (!pending.actions && !pending.knowledge && !pending.snapshot) return;
 
     this.autoSyncRunning = true;
     try {
+      /* 项目在插件外被删除、改名或改了控制文件时，index.md 不会自己更新，
+         health 随即报 BROKEN_LINK_PATH。content index 只在内容变化时写入，
+         且 index.md 本身不入队，不会自我触发。 */
+      for (const topic of indexTopics) {
+        await this.syncContentIndex(topic);
+      }
       if (pending.knowledge) {
         recordAutoSyncAttempt(this, "route");
         try {
@@ -5814,13 +5844,14 @@ class CrispLaunchpadPlugin extends Plugin {
       } catch (error) {
         validation = { status: "pending", error: error.message || String(error) };
       }
+      // 先物化控制卡：anks_core 优先读 project.md，快照要建在最新控制卡上。
+      await this.syncContentArtifacts(contentId, { topic: selectedTopic });
       try {
         await this.refreshSystemSnapshots({ silent: true });
       } catch (error) {
         // A project can be created while an unrelated vault-wide gate keeps the
         // system snapshot refresh blocked. Do not report that as creation failure.
       }
-      await this.syncContentArtifacts(contentId, { topic: selectedTopic });
     }
     return { contentId, projectDir, validation };
   }
@@ -5867,17 +5898,18 @@ class CrispLaunchpadPlugin extends Plugin {
     }
 
     if (this.canRunAnks()) {
+      // 先重新物化 project.md 再建快照，否则 content 快照读到的是旧阶段。
+      const projectId = String(projectDir || "").replace(/\/+$/, "").split("/").pop();
+      await this.syncContentArtifacts(projectId, {
+        force: true,
+        topic: contentTopicFromPath(projectDir),
+      });
       try {
         await this.refreshSystemSnapshots({ silent: true });
       } catch (error) {
         // The project write succeeded; a system-wide snapshot may still be blocked
         // by an unrelated gate elsewhere in the vault.
       }
-      const projectId = String(projectDir || "").replace(/\/+$/, "").split("/").pop();
-      await this.syncContentArtifacts(projectId, {
-        force: true,
-        topic: contentTopicFromPath(projectDir),
-      });
     }
     this.refreshViews();
     return { stage, status, nextAction };
@@ -6081,6 +6113,7 @@ module.exports.contentSlug = contentSlug;
 module.exports.appendActionTask = appendActionTask;
 module.exports.buildInboxNote = buildInboxNote;
 module.exports.eventBridgeKind = eventBridgeKind;
+module.exports.contentIndexTopicForPath = contentIndexTopicForPath;
 module.exports.heatLevel = heatLevel;
 module.exports.inferTopicFromPath = inferTopicFromPath;
 module.exports.captureTargetTopic = captureTargetTopic;
