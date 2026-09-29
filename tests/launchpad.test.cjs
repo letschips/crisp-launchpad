@@ -1982,3 +1982,179 @@ test("推进内容项目：先重新物化控制卡，再重建系统快照", as
   assert.ok(card >= 0 && snapshot >= 0, calls.join(" | "));
   assert.ok(card < snapshot, `控制卡须先于快照：${calls.join(" | ")}`);
 });
+
+test("控制卡：只把 control-card 生成的卡判定为可自动刷新", () => {
+  const generated = [
+    "---",
+    "schema_version: 1",
+    "content_id: WECHAT-1",
+    "stage: drafting",
+    "",
+    "---",
+    "",
+    "# 项目控制卡：WECHAT-1",
+    "",
+    "- **项目 ID**：`WECHAT-1`",
+    "- **体裁 Profile**：`standard-essay`",
+    "- **当前阶段**：`stage: drafting`（`status: active`）",
+    "- **下一步动作**：继续推进当前阶段",
+    "",
+  ].join("\n");
+  assert.equal(launchpad.isGeneratedControlCard(generated), true);
+  assert.equal(launchpad.isGeneratedControlCard(generated.replace(/\n/g, "\r\n")), true);
+  assert.equal(launchpad.isGeneratedControlCard(`${generated}\n手写的复盘备注\n`), false);
+  assert.equal(launchpad.isGeneratedControlCard("---\nstage: x\n---\n# 我的项目\n"), false);
+  assert.equal(launchpad.isGeneratedControlCard(""), false);
+
+  assert.deepEqual(
+    launchpad.controlCardProjectForPath("Topics/studio/content-projects/P-1/project.yaml"),
+    { topic: "studio", contentId: "P-1" },
+  );
+  assert.equal(launchpad.controlCardProjectForPath("Topics/studio/content-projects/P-1/facts.yaml"), null);
+  assert.equal(launchpad.controlCardProjectForPath("Topics/studio/content-projects/P-1/x/project.yaml"), null);
+});
+
+test("事件桥：外部改 project.yaml 只刷新生成的控制卡，且先于索引和快照", async () => {
+  const calls = [];
+  const cards = {
+    "Topics/self-media/content-projects/GEN/project.md":
+      "---\nstage: a\n---\n# 项目控制卡：GEN\n- **项目 ID**：`GEN`\n",
+    "Topics/self-media/content-projects/HAND/project.md":
+      "---\nstage: a\n---\n# 项目控制卡：HAND\n- **项目 ID**：`HAND`\n手写备注\n",
+  };
+  const plugin = Object.assign(Object.create(launchpad.prototype), {
+    settings: { autoRouteEnabled: true },
+    canRunAnks: () => true,
+    unloaded: false,
+    autoSyncRunning: false,
+    autoSyncDirty: { actions: false, knowledge: false, snapshot: false },
+    autoSyncIgnoreUntil: 0,
+    healthRebuildTimer: null,
+    refreshViews: () => {},
+    app: {
+      vault: {
+        adapter: {
+          exists: async (path) => path in cards,
+          read: async (path) => cards[path],
+        },
+      },
+    },
+    runAnks: async (args) => {
+      calls.push(args.join(" "));
+    },
+  });
+  for (const id of ["GEN", "HAND", "NOCARD"]) {
+    plugin.handleAutoRouteCandidate({ path: `Topics/self-media/content-projects/${id}/project.yaml` });
+  }
+  clearTimeout(plugin.autoSyncTimer);
+  clearTimeout(plugin.refreshTimer);
+  await plugin.runEventBridgeSync();
+  clearTimeout(plugin.healthRebuildTimer);
+  assert.deepEqual(calls, [
+    "content control-card GEN --topic self-media --force",
+    "content index --topic self-media",
+    "snapshot build --only content,index",
+  ]);
+});
+
+test("路由忽略前缀：从 routing-rules.toml 读取，失败退回内置清单", () => {
+  const parse = launchpad.parseRouterIgnorePrefixes;
+  assert.deepEqual(parse('[router]\nignore_prefixes = ["a/", "Topics/x/content-projects/"]\n'), [
+    "a/",
+    "Topics/x/content-projects/",
+  ]);
+  assert.deepEqual(parse("ignore_prefixes = [\n  'a/',\n  \"b/\",\n]\n"), ["a/", "b/"]);
+  assert.equal(parse("[[rules]]\nname = 'x'\n"), null);
+  assert.equal(parse("ignore_prefixes = []"), null);
+  try {
+    launchpad.setRouterIgnorePrefixes(["Topics/studio/content-projects/"]);
+    assert.equal(launchpad.isRouterIgnoredPath("Topics/studio/content-projects/P/a.md"), true);
+    assert.equal(launchpad.isRouterIgnoredPath("Topics/studio/content-projects"), true);
+    assert.equal(launchpad.isRouterIgnoredPath("Topics/self-media/content-projects/P/a.md"), false);
+    assert.equal(launchpad.eventBridgeKind("Topics/studio/content-projects/P/a.md"), "snapshot");
+    launchpad.setRouterIgnorePrefixes(null);
+    assert.equal(launchpad.isRouterIgnoredPath("Topics/self-media/content-projects/P/a.md"), true);
+  } finally {
+    launchpad.setRouterIgnorePrefixes(null);
+  }
+});
+
+test("路由忽略前缀：内置兜底清单与本机 ANKS 的 routing-rules.toml 一致", (t) => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const vault =
+    process.env.ANKS_VAULT ||
+    path.join(
+      require("node:os").homedir(),
+      "Library/Mobile Documents/iCloud~md~obsidian/Documents/AI-native Knowledge System",
+    );
+  const file = path.join(vault, launchpad.ROUTING_RULES_PATH);
+  if (!fs.existsSync(file)) {
+    t.skip("本机没有 ANKS vault");
+    return;
+  }
+  assert.deepEqual(
+    launchpad.parseRouterIgnorePrefixes(fs.readFileSync(file, "utf8")),
+    launchpad.ROUTER_IGNORE_PREFIXES,
+    "routing-rules.toml 已变化：同步 main.js 的 ROUTER_IGNORE_PREFIXES 兜底清单",
+  );
+});
+
+test("事件桥：routing-rules.toml 变化只重载忽略前缀，不排队 CLI", async () => {
+  let reloads = 0;
+  const plugin = Object.assign(Object.create(launchpad.prototype), {
+    settings: { autoRouteEnabled: true },
+    canRunAnks: () => true,
+    unloaded: false,
+    autoSyncDirty: { actions: false, knowledge: false, snapshot: false },
+    loadRouterIgnorePrefixes: async () => {
+      reloads += 1;
+    },
+  });
+  plugin.handleAutoRouteCandidate({ path: launchpad.ROUTING_RULES_PATH });
+  assert.equal(reloads, 1);
+  assert.deepEqual(plugin.autoSyncDirty, { actions: false, knowledge: false, snapshot: false });
+  assert.equal(plugin.autoSyncTimer, undefined);
+});
+
+test("阻塞行动：health 已无该 blocking 时判定为已解除，无效报告不判定", () => {
+  const tasks = [
+    { id: "n:1", title: "处理系统阻塞：DOCS_SYNC_OUTDATED", done: false },
+    { id: "n:2", title: "处理系统阻塞：CONTRACT_ERROR", done: false },
+    { id: "n:3", title: "处理系统阻塞：OLD", done: true },
+    { id: "n:4", title: "手动写的 处理系统阻塞：X", done: false },
+  ];
+  const health = {
+    data: { findings: [{ code: "CONTRACT_ERROR", severity: "blocking" }, { code: "X", severity: "operational" }] },
+  };
+  assert.deepEqual(
+    launchpad.resolvedBlockingActions(tasks, health).map((task) => task.id),
+    ["n:1"],
+  );
+  assert.deepEqual(launchpad.resolvedBlockingActions(tasks, null), []);
+  assert.deepEqual(launchpad.resolvedBlockingActions(tasks, { data: { status: "error" } }), []);
+});
+
+test("阻塞行动：health 重建成功后按标题锚点关闭已解除的行动", async () => {
+  const updates = [];
+  const plugin = Object.assign(Object.create(launchpad.prototype), {
+    app: {
+      vault: {
+        adapter: {
+          read: async () => JSON.stringify({ data: { findings: [] } }),
+        },
+      },
+    },
+    readNowTasks: async () => [
+      { id: "Now/行动.md:5", title: "处理系统阻塞：DOCS_SYNC_OUTDATED", done: false },
+      { id: "Now/行动.md:6", title: "写周报", done: false },
+    ],
+    updateNowTask: async (id, patch, expectedTitle) => {
+      updates.push([id, patch, expectedTitle]);
+    },
+  });
+  assert.equal(await plugin.closeResolvedBlockingActions(), 1);
+  assert.deepEqual(updates, [
+    ["Now/行动.md:5", { done: true }, "处理系统阻塞：DOCS_SYNC_OUTDATED"],
+  ]);
+});

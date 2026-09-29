@@ -1151,9 +1151,32 @@ const ROUTER_IGNORE_PREFIXES = [
   "Topics/main-business/content-projects/",
 ];
 
-function isRouterIgnoredPath(path) {
+const ROUTING_RULES_PATH = "Sidecar/tools/knowledge-router/routing-rules.toml";
+let activeRouterIgnorePrefixes = ROUTER_IGNORE_PREFIXES;
+
+/* 真源是 routing-rules.toml 的 ignore_prefixes。插件启动和该文件变化时读取，
+   读不到或解析失败才退回上面的内置清单。 */
+function parseRouterIgnorePrefixes(text) {
+  const match = String(text ?? "").match(/^\s*ignore_prefixes\s*=\s*\[([\s\S]*?)\]/m);
+  if (!match) return null;
+  const items = [...match[1].matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)]
+    .map((item) => item[1] ?? item[2])
+    .filter(Boolean);
+  return items.length ? items : null;
+}
+
+function setRouterIgnorePrefixes(prefixes) {
+  activeRouterIgnorePrefixes =
+    Array.isArray(prefixes) && prefixes.length ? [...prefixes] : ROUTER_IGNORE_PREFIXES;
+  return activeRouterIgnorePrefixes;
+}
+
+function isRouterIgnoredPath(path, prefixes = activeRouterIgnorePrefixes) {
   const normalized = textOr(path);
-  return ROUTER_IGNORE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  // 与 knowledge_router.py 相同：等于去掉尾斜杠的前缀，或以前缀开头
+  return prefixes.some(
+    (prefix) => normalized === prefix.replace(/\/+$/, "") || normalized.startsWith(prefix),
+  );
 }
 
 function eventBridgeKind(path) {
@@ -1182,6 +1205,26 @@ function contentIndexTopicForPath(path) {
   if (!match) return "";
   if (!match[3] && /\.[a-z0-9]+$/i.test(match[2])) return "";
   return match[1];
+}
+
+/* project.yaml 变化时需要重新物化控制卡的项目。只认项目根下的 project.yaml。 */
+function controlCardProjectForPath(path) {
+  const match = textOr(path).match(/^Topics\/([^/]+)\/content-projects\/([^/]+)\/project\.ya?ml$/);
+  return match ? { topic: match[1], contentId: match[2] } : null;
+}
+
+/* 判断 project.md 是否是 `anks content control-card` 生成的卡：正文只有标题和
+   四个固定条目。手写过正文的卡不自动覆盖，由 ANKS 的 CONTROL_CARD_STALE 报出。 */
+function isGeneratedControlCard(text) {
+  const body = String(text ?? "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+  const lines = body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && line !== "---");
+  if (!lines.length || !lines[0].startsWith("# 项目控制卡：")) return false;
+  return lines
+    .slice(1)
+    .every((line) => /^- \*\*(项目 ID|体裁 Profile|当前阶段|下一步动作)\*\*：/.test(line));
 }
 
 const GENERIC_DOC_NAMES = new Set([
@@ -1236,6 +1279,25 @@ function pageLabel(page) {
   return findingBasename({ path: textOr(page?.path, "") });
 }
 
+const BLOCKING_ACTION_PREFIX = "处理系统阻塞：";
+
+/* 由「处理系统阻塞：CODE」生成的行动，在最新 health 已没有该 blocking 时视为已解除。
+   health 不是有效报告（没有 findings 数组）时一律不判定。 */
+function resolvedBlockingActions(tasks = [], health = null) {
+  const data = health?.data || health;
+  if (!data || !Array.isArray(data.findings)) return [];
+  const active = new Set(
+    data.findings
+      .filter((finding) => finding.severity === "blocking" || finding.severity === "error")
+      .map((finding) => textOr(finding.code, "blocking")),
+  );
+  return tasks.filter((task) => {
+    if (task.done || !textOr(task.title).startsWith(BLOCKING_ACTION_PREFIX)) return false;
+    const code = textOr(task.title).slice(BLOCKING_ACTION_PREFIX.length).trim();
+    return Boolean(code) && !active.has(code);
+  });
+}
+
 function suggestReviewActions({
   tasks = [],
   pages = [],
@@ -1272,7 +1334,7 @@ function suggestReviewActions({
     (finding) => finding.severity === "blocking" || finding.severity === "error",
   );
   if (blocking.length) {
-    push(`处理系统阻塞：${blocking[0].code || "blocking"}`, "ANKS");
+    push(`${BLOCKING_ACTION_PREFIX}${blocking[0].code || "blocking"}`, "ANKS");
   }
 
   const overdue = tasks.filter((task) => !task.done && task.bucket === "overdue");
@@ -4939,6 +5001,7 @@ function recordAutoSyncFailure(plugin, component, error) {
 class CrispLaunchpadPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
+    await this.loadRouterIgnorePrefixes();
     this.refreshTimer = null;
     this.autoSyncTimer = null;
     this.autoSyncRunning = false;
@@ -5255,7 +5318,12 @@ class CrispLaunchpadPlugin extends Plugin {
 
   handleAutoRouteCandidate(file) {
     if (this.unloaded) return;
+    if (textOr(file?.path) === ROUTING_RULES_PATH) {
+      void this.loadRouterIgnorePrefixes();
+      return;
+    }
     const indexTopic = contentIndexTopicForPath(file?.path);
+    const cardProject = controlCardProjectForPath(file?.path);
     // 删除整个项目目录时事件路径是文件夹（无扩展名），eventBridgeKind 不认，
     // 但派生的 content-projects/index.md 仍需重建。
     const kind = eventBridgeKind(file?.path) || (indexTopic ? "snapshot" : "");
@@ -5269,6 +5337,9 @@ class CrispLaunchpadPlugin extends Plugin {
     if (!this.settings.autoRouteEnabled || !this.canRunAnks()) return;
     this.autoSyncDirty[kind] = true;
     if (indexTopic) (this.autoSyncIndexTopics ||= new Set()).add(indexTopic);
+    if (cardProject) {
+      (this.autoSyncCardProjects ||= new Map()).set(cardProject.contentId, cardProject.topic);
+    }
     if (this.autoSyncRunning) {
       return;
     }
@@ -5292,6 +5363,8 @@ class CrispLaunchpadPlugin extends Plugin {
     this.autoSyncDirty = { actions: false, knowledge: false, snapshot: false };
     const indexTopics = [...(this.autoSyncIndexTopics || [])];
     this.autoSyncIndexTopics = new Set();
+    const cardProjects = [...(this.autoSyncCardProjects || new Map())];
+    this.autoSyncCardProjects = new Map();
     if (!pending.actions && !pending.knowledge && !pending.snapshot) return;
 
     this.autoSyncRunning = true;
@@ -5299,6 +5372,9 @@ class CrispLaunchpadPlugin extends Plugin {
       /* 项目在插件外被删除、改名或改了控制文件时，index.md 不会自己更新，
          health 随即报 BROKEN_LINK_PATH。content index 只在内容变化时写入，
          且 index.md 本身不入队，不会自我触发。 */
+      for (const [contentId, topic] of cardProjects) {
+        await this.refreshGeneratedControlCard(contentId, topic);
+      }
       for (const topic of indexTopics) {
         await this.syncContentIndex(topic);
       }
@@ -5362,6 +5438,7 @@ class CrispLaunchpadPlugin extends Plugin {
       try {
         await this.runAnks(["snapshot", "build", "--only", "health"]);
         recordAutoSyncSuccess(this, "health");
+        await this.closeResolvedBlockingActions();
         this.refreshViews();
       } catch (error) {
         this.reportAutoSyncError(error, "health");
@@ -5498,6 +5575,48 @@ class CrispLaunchpadPlugin extends Plugin {
     }
   }
 
+  /* project.yaml 在插件外被改时，只刷新生成的控制卡；手写卡保持原样。 */
+  async refreshGeneratedControlCard(contentId, topic) {
+    const cardPath = `Topics/${topic}/content-projects/${contentId}/project.md`;
+    try {
+      const adapter = this.app.vault.adapter;
+      if (!(await adapter.exists(cardPath))) return false;
+      if (!isGeneratedControlCard(await adapter.read(cardPath))) return false;
+      await this.runAnks(["content", "control-card", contentId, "--topic", topic, "--force"]);
+      return true;
+    } catch (error) {
+      console.warn("[Crisp Launchpad] control card refresh failed:", error);
+      return false;
+    }
+  }
+
+  async loadRouterIgnorePrefixes() {
+    try {
+      const adapter = this.app.vault.adapter;
+      const text = (await adapter.exists(ROUTING_RULES_PATH))
+        ? await adapter.read(ROUTING_RULES_PATH)
+        : "";
+      return setRouterIgnorePrefixes(parseRouterIgnorePrefixes(text));
+    } catch (error) {
+      return setRouterIgnorePrefixes(null);
+    }
+  }
+
+  /* health 重建成功后，关掉阻塞已经解除的「处理系统阻塞：CODE」行动。 */
+  async closeResolvedBlockingActions() {
+    try {
+      const raw = await this.app.vault.adapter.read(`${SNAPSHOT_ROOT}/health.json`);
+      const resolved = resolvedBlockingActions(await this.readNowTasks(), JSON.parse(raw));
+      for (const task of resolved) {
+        await this.updateNowTask(task.id, { done: true }, task.title);
+      }
+      return resolved.length;
+    } catch (error) {
+      console.warn("[Crisp Launchpad] closing resolved blocking actions failed:", error);
+      return 0;
+    }
+  }
+
   /* content-projects/index.md 是派生文件（真源是各项目的 project.yaml），
      由 Sidecar 的 `anks content index` 重建。重建失败不应让项目创建/推进失败。 */
   async syncContentIndex(topic = "") {
@@ -5551,6 +5670,7 @@ class CrispLaunchpadPlugin extends Plugin {
       await this.runAnks(["snapshot", "build"]);
       recordAutoSyncSuccess(this, "snapshot");
       recordAutoSyncSuccess(this, "health");
+      await this.closeResolvedBlockingActions();
       if (!options.silent) new Notice("Crisp Launchpad：系统快照已刷新");
       this.refreshViews();
       return true;
@@ -6114,6 +6234,13 @@ module.exports.appendActionTask = appendActionTask;
 module.exports.buildInboxNote = buildInboxNote;
 module.exports.eventBridgeKind = eventBridgeKind;
 module.exports.contentIndexTopicForPath = contentIndexTopicForPath;
+module.exports.controlCardProjectForPath = controlCardProjectForPath;
+module.exports.isGeneratedControlCard = isGeneratedControlCard;
+module.exports.parseRouterIgnorePrefixes = parseRouterIgnorePrefixes;
+module.exports.setRouterIgnorePrefixes = setRouterIgnorePrefixes;
+module.exports.ROUTER_IGNORE_PREFIXES = ROUTER_IGNORE_PREFIXES;
+module.exports.ROUTING_RULES_PATH = ROUTING_RULES_PATH;
+module.exports.resolvedBlockingActions = resolvedBlockingActions;
 module.exports.heatLevel = heatLevel;
 module.exports.inferTopicFromPath = inferTopicFromPath;
 module.exports.captureTargetTopic = captureTargetTopic;

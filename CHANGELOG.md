@@ -8,6 +8,9 @@
 - Review suggestions now also deduplicate against actions completed in the last 14 days. Ticking an action does not clear the ANKS finding behind it (`knowledge_writeback`, inbox status), so the same first two write-back and inbox items were regenerated on every click and later findings never surfaced.
 - The event bridge rebuilds `content-projects/index.md` when a project is deleted, renamed, or edited outside the plugin, so the derived index no longer keeps links to removed projects (`BROKEN_LINK_PATH`).
 - Creating or advancing a content project now re-materializes `project.md` before rebuilding snapshots. `anks_core` reads `project.md` first, so the old order built the content snapshot from the previous stage.
+- When `project.yaml` changes outside the plugin, the event bridge re-materializes `project.md` only if it is a generated card (title plus the four generated fields). Hand-written cards are left alone; ANKS still reports them as `CONTROL_CARD_STALE`.
+- Router ignore prefixes are read from `routing-rules.toml` at startup and whenever that file changes. The built-in list is only a fallback, and a local test fails if it drifts from the vault.
+- After a successful health rebuild, open `处理系统阻塞：CODE` actions whose blocking finding is gone are completed automatically, using the title as the write anchor.
 
 ## [0.2.12] - 2026-09-23
 
