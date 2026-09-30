@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.14 — 2026-09-30
+
+- `data.json` 损坏无法读取时（例如同步冲突或写入中断），先备份为 `data.json.unreadable-<时间>` 再恢复默认设置，避免设置被静默覆盖；无法备份时本次运行不保存设置。
+
 ## [0.2.13] - 2026-09-27
 
 - Read the action card from current Now files on desktop as well as mobile, so equal-count edits and emptied action files cannot be hidden by a stale snapshot.
