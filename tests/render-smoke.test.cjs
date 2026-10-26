@@ -459,6 +459,29 @@ test("实时行动链路：相同数量的旧快照不能覆盖 Now 的标题和
   assert.ok(text.includes("实时活数据"));
 });
 
+// Failure mode: the load badge must follow live Now counts (not stale snapshot
+// counts) while taking the limit from the snapshot's wip_limit-derived load.
+test("行动台负荷：今天 + 逾期超过 wip 上限时显示警示徽章", async () => {
+  const snapshots = makeSnapshots();
+  snapshots.actions.load = { active: 0, overdue: 0, limit: 1, state: "ok" };
+  const plugin = await makePlugin({
+    desktop: true,
+    snapshots,
+    nowContent: "- [ ] 甲 📅 2000-01-01\n- [ ] 乙 📅 2000-01-02\n- [ ] 以后 📅 2099-01-01\n",
+  });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  const find = (el) => (el.textContent === "负荷 2/1" ? el : el.children.map(find).find(Boolean));
+  const badge = find(view.contentEl);
+  assert.ok(badge, "应显示「负荷 2/1」徽章");
+  assert.ok(badge.classes.has("is-warning"), "超过上限时徽章应为警示态");
+});
+
+test("行动台负荷：快照没有 load 时按默认上限 5 显示", async () => {
+  const plugin = await makePlugin({ desktop: true, nowContent: "- [ ] 甲 📅 2000-01-01\n" });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  assert.ok(view.contentEl.allText().includes("负荷 1/5"));
+});
+
 test("实时行动链路：Now 已清空时不能复活快照中的任务", async () => {
   const plugin = await makePlugin({ desktop: true, nowContent: "# 行动\n" });
   const { view } = await renderView(plugin, "crisp-launchpad-view");

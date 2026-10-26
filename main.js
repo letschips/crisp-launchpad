@@ -1760,6 +1760,19 @@ class LaunchpadRenderer {
     const countsSource = useLive ? liveCounts : (snapshot?.counts || liveCounts);
     const totalCount = useLive ? liveTotal : snapshotTotal;
 
+    // Same rule as actions_snapshot.py: today + overdue against the
+    // snapshot's limit (Now/ frontmatter wip_limit, default 5).
+    const wipLimit = Number(snapshot?.load?.limit) || 5;
+    const wipActive = Number(countsSource.overdue || 0) + Number(countsSource.today || 0);
+    const wipOver = wipActive > wipLimit;
+    const wipBadge = title.createSpan({
+      cls: `launchpad-badge${wipOver ? " is-warning" : ""}`,
+      text: `负荷 ${wipActive}/${wipLimit}`,
+    });
+    wipBadge.title = wipOver
+      ? `今天 + 逾期共 ${wipActive} 项，超过上限 ${wipLimit}：先完成或改到以后`
+      : `今天 + 逾期共 ${wipActive} 项，上限 ${wipLimit}（Now/ 文件 frontmatter 的 wip_limit 可调）`;
+
     const age = snapshotAge(snapshot?.generated_at || snapshot);
     const ageText = snapshotAgeLabel(age);
     let badgeText = "快照已连接";
