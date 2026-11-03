@@ -790,7 +790,9 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 /* Action snapshot: Today / Waiting / Upcoming / Anytime / Overdue */
 .crisp-launchpad-view .launchpad-action-counts {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* 5 档（Now/）或 6 档（Tempo 多一个收件箱），按实际个数等分。 */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   border-top: 1px solid var(--pulse-ui-border);
   border-bottom: 1px solid var(--pulse-ui-border);
 }
@@ -1033,6 +1035,11 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 }
 
 @container launchpad (max-width: 560px) {
+  /* 窄面板里卡片头部（如行动台的 5 个按钮）放不下时换行，否则按钮会压住标题和徽章 */
+  .crisp-launchpad-view .launchpad-card-header {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
   .crisp-launchpad-view .launchpad-kpi-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1367,9 +1374,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 }
 
 @container launchpad (max-width: 700px) {
-  .crisp-launchpad-view .launchpad-action-counts {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
   .crisp-launchpad-view .launchpad-action-count {
     min-height: 48px;
     padding: 10px 4px;
@@ -2669,4 +2673,60 @@ body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting tex
   color: var(--text-faint);
   font-size: 10px;
   word-break: break-all;
+}
+
+/* Crisp 工具：分组标签 + 图标按钮，只放已启用插件的入口 */
+.crisp-launchpad-view .launchpad-tool-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.crisp-launchpad-view .launchpad-tool-group {
+  display: grid;
+  grid-template-columns: 3em minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.crisp-launchpad-view .launchpad-tool-group-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.crisp-launchpad-view .launchpad-tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.crisp-launchpad-view .launchpad-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--pulse-ui-border);
+  border-radius: var(--lp-radius-md, 8px);
+  background: color-mix(in srgb, var(--background-primary) 26%, transparent);
+  box-shadow: none;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.crisp-launchpad-view .launchpad-tool:hover {
+  background: color-mix(in srgb, var(--text-normal) 9%, transparent);
+  border-color: color-mix(in srgb, var(--pulse-ui-accent) 45%, var(--pulse-ui-border));
+}
+
+.crisp-launchpad-view .launchpad-tool-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.crisp-launchpad-view .launchpad-tool-icon svg {
+  width: 15px;
+  height: 15px;
 }

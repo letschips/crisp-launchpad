@@ -726,6 +726,88 @@ function parseNowTasks(documents, today = new Date()) {
   return tasks;
 }
 
+/* 分工契约（docs/ROLE-CONTRACT.md）：装了且激活 Crisp Tempo 时，行动以 Tempo 为准。
+   Launchpad 只读 Tempo 的 getActionOverview()，换成看板用的行动形状；完成、改期都回 Tempo 做。 */
+const TEMPO_PLUGIN_ID = "crisp-tempo";
+
+function tempoSummaryToAction(item) {
+  const done = item?.bucket === "done";
+  return {
+    id: `tempo:${textOr(item?.id)}`,
+    tempoId: textOr(item?.id),
+    source: "tempo",
+    title: textOr(item?.title, "未命名行动"),
+    done,
+    due: isDateKey(item?.dueDate) ? item.dueDate : "",
+    scheduled: isDateKey(item?.focusDate) ? item.focusDate : "",
+    start: isDateKey(item?.startDate) ? item.startDate : "",
+    created: "",
+    time: "",
+    doneAt: done && Number(item?.completedAt) ? dateKey(new Date(Number(item.completedAt))) : "",
+    waiting: item?.bucket === "waiting",
+    tags: [],
+    project: textOr(item?.projectTitle),
+    sourceId: textOr(item?.sourceId),
+    bucket: textOr(item?.bucket, "anytime"),
+  };
+}
+
+/* Tempo 按来源标识去重。带上日期：同一天重复点不重复建；隔天同名行动由未完成标题去重，
+   否则做完一次的复盘行动以后再也生成不出来。 */
+function launchpadActionSourceId(text, day = dateKey(new Date())) {
+  const input = `${day}|${String(text ?? "").replace(/\s+/g, " ").trim()}`;
+  let hash = 0x811c9dc5;
+  for (const char of input) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `crisp-launchpad:${day.replace(/-/g, "")}-${hash.toString(16).padStart(8, "0")}`;
+}
+
+/* 其他 Crisp 插件的入口：按「捕获 / 规划 / 检索 / 创作」分组，只显示已启用且命令存在的。
+   外观、氛围类插件（Ripple、Pets、Reading Rail 等）不属于工作流程，不放进来。 */
+const CRISP_TOOL_GROUPS = [
+  {
+    label: "捕获",
+    tools: [
+      { plugin: "crisp-pulse", command: "crisp-pulse:quick-memo", name: "速记", icon: "pencil-line" },
+      { plugin: "crisp-asr", command: "crisp-asr:open", name: "转写", icon: "mic" },
+    ],
+  },
+  {
+    label: "规划",
+    tools: [
+      { plugin: "crisp-tempo", command: "crisp-tempo:open-tempo-view", name: "Tempo", icon: "list-checks" },
+      { plugin: "crisp-focus", command: "crisp-focus:open-pomodoro", name: "番茄钟", icon: "timer" },
+      { plugin: "crisp-pulse", command: "crisp-pulse:open-crisp-pulse-view", name: "Pulse", icon: "activity" },
+    ],
+  },
+  {
+    label: "检索",
+    tools: [
+      { plugin: "crisp-search", command: "crisp-search:open", name: "搜索", icon: "search" },
+      { plugin: "crisp-lens", command: "crisp-lens:open", name: "对象面板", icon: "scan-eye" },
+      { plugin: "crisp-annotations", command: "crisp-annotations:open-annotation-outline", name: "标注中心", icon: "highlighter" },
+    ],
+  },
+  {
+    label: "创作",
+    tools: [
+      { plugin: "crisp-mind", command: "crisp-mind:create-crisp-mind", name: "新建导图", icon: "network" },
+      { plugin: "crisp-dsh", command: "crisp-dsh:open-crisp-dsh", name: "DSH", icon: "bot" },
+      { plugin: "crisp-wechat-publisher", command: "crisp-wechat-publisher:open-wechat-sidebar-view", name: "公众号预览", icon: "send" },
+    ],
+  },
+];
+
+function availableCrispTools(enabledPlugins, hasCommand) {
+  const enabled = enabledPlugins instanceof Set ? enabledPlugins : new Set(enabledPlugins || []);
+  return CRISP_TOOL_GROUPS.map((group) => ({
+    label: group.label,
+    tools: group.tools.filter((tool) => enabled.has(tool.plugin) && hasCommand(tool.command)),
+  })).filter((group) => group.tools.length);
+}
+
 function reminderMoment(task) {
   if (!task || task.done) return null;
   const date = isDateKey(task.due)
@@ -1732,7 +1814,9 @@ class LaunchpadRenderer {
     const title = header.createDiv({ cls: "launchpad-card-title" });
     addIcon(title, CRISP_NOW_ICON_ID);
     title.createSpan({ text: "行动台" });
-    title.createSpan({ cls: "launchpad-badge", text: "Now/" });
+    const usesTempo = this.plugin.usesTempo();
+    const sourceLabel = usesTempo ? "Tempo" : "Now/";
+    title.createSpan({ cls: "launchpad-badge", text: sourceLabel });
     const headerActions = header.createDiv({ cls: "launchpad-actions" });
     const snapshot = this.snapshots.actions;
     const liveTasks = Array.isArray(this.snapshots.tasks)
@@ -1744,6 +1828,7 @@ class LaunchpadRenderer {
       waiting: liveTasks.filter((task) => task.bucket === "waiting").length,
       upcoming: liveTasks.filter((task) => task.bucket === "upcoming").length,
       anytime: liveTasks.filter((task) => task.bucket === "anytime").length,
+      inbox: liveTasks.filter((task) => task.bucket === "inbox").length,
     };
     const liveTotal = liveTasks.length;
     const completedTotal = Array.isArray(this.snapshots.tasks)
@@ -1771,7 +1856,7 @@ class LaunchpadRenderer {
     });
     wipBadge.title = wipOver
       ? `今天 + 逾期共 ${wipActive} 项，超过上限 ${wipLimit}：先完成或改到以后`
-      : `今天 + 逾期共 ${wipActive} 项，上限 ${wipLimit}（Now/ 文件 frontmatter 的 wip_limit 可调）`;
+      : `今天 + 逾期共 ${wipActive} 项，上限 ${wipLimit}${usesTempo ? "" : "（Now/ 文件 frontmatter 的 wip_limit 可调）"}`;
 
     const age = snapshotAge(snapshot?.generated_at || snapshot);
     const ageText = snapshotAgeLabel(age);
@@ -1796,14 +1881,10 @@ class LaunchpadRenderer {
     }
     const capture = addButton(headerActions, "速记");
     const newAction = addButton(headerActions, "新建行动");
-    const openNow = addButton(headerActions, "打开 Now/", "launchpad-btn is-accent");
-    openNow.addEventListener("click", () => this.plugin.activateNowView());
-    capture.addEventListener("click", () => {
-      new QuickCaptureModal(this.app, this.plugin, this.view).open();
-    });
-    newAction.addEventListener("click", () => {
-      new QuickCaptureModal(this.app, this.plugin, this.view, "action").open();
-    });
+    const openNow = addButton(headerActions, this.plugin.actionBoardLabel(), "launchpad-btn is-accent");
+    openNow.addEventListener("click", () => this.plugin.openActionBoard());
+    capture.addEventListener("click", () => this.plugin.openQuickCapture(this.view));
+    newAction.addEventListener("click", () => this.plugin.openNewAction(this.view));
     refresh.addEventListener("click", async () => {
       refresh.disabled = true;
       try {
@@ -1822,6 +1903,8 @@ class LaunchpadRenderer {
       ["waiting", "等待"],
       ["upcoming", "即将"],
       ["anytime", "随时"],
+      /* 只有 Tempo 有收件箱（还没排进计划的任务）；Now/ 没有这一档。 */
+      ...(usesTempo ? [["inbox", "收件箱"]] : []),
     ];
 
     const groups = new Map((snapshot?.groups || []).map((group) => [group.id, group.items || []]));
@@ -1896,7 +1979,7 @@ class LaunchpadRenderer {
         this.renderActionItems(laterList, [...waitingTasks, ...upcomingTasks], 8);
 
         const baseStatus = useLive
-          ? `数据源：Now/ 实时解析 · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`
+          ? `数据源：${usesTempo ? "Crisp Tempo" : "Now/ 实时解析"} · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`
           : `数据源：${snapshot?.source?.label || "ANKS 行动快照"} · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`;
         statusEl.setText(`${baseStatus} · 点击上方指标可单独筛选`);
       } else {
@@ -1906,6 +1989,7 @@ class LaunchpadRenderer {
           waiting: { label: "等待行动", empty: "当前没有等待中的外部依赖事项" },
           upcoming: { label: "即将到来", empty: "近期暂无日程安排事项" },
           anytime: { label: "随时行动", empty: "随时行动池目前为空" },
+          inbox: { label: "Tempo 收件箱", empty: "Tempo 收件箱是空的" },
         }[currentFilter] || { label: "行动", empty: "当前没有行动" };
 
         const headerRow = bodyWrap.createDiv({ cls: "launchpad-action-filter-header" });
@@ -1931,7 +2015,7 @@ class LaunchpadRenderer {
         }
 
         const baseStatus = useLive
-          ? `数据源：Now/ 实时解析 · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`
+          ? `数据源：${usesTempo ? "Crisp Tempo" : "Now/ 实时解析"} · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`
           : `数据源：${snapshot?.source?.label || "ANKS 行动快照"} · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`;
         statusEl.setText(`${baseStatus} · 正在聚焦「${filterMeta.label}」· 再次点击上方指标返回双栏`);
       }
@@ -1954,7 +2038,7 @@ class LaunchpadRenderer {
       right.createSpan({ text: actionItemMeta(item) });
       makeClickable(
         row,
-        () => this.view.openTarget(item.origin?.path || item.path || "Now/行动.md", item.title),
+        () => this.plugin.openAction(item, (path, title) => this.view.openTarget(path, title)),
         `打开行动：${item.title}`,
       );
     }
@@ -2337,7 +2421,34 @@ class LaunchpadRenderer {
     if (this.profile.features.review && this.hasTab("review")) {
       this.renderTodayReviewSummary(this.panels.today);
     }
+    this.renderToolCard(this.panels.today);
     if (this.profile.features.kernelPill) this.renderSystemSummary(this.panels.today);
+  }
+
+  renderToolCard(parent) {
+    const groups = availableCrispTools(this.app.plugins?.enabledPlugins, (id) => this.plugin.hasCommand(id));
+    if (!groups.length) return;
+    const card = parent.createDiv({ cls: "launchpad-card" });
+    const header = card.createDiv({ cls: "launchpad-card-header" });
+    const title = header.createDiv({ cls: "launchpad-card-title" });
+    addIcon(title, "layout-grid");
+    title.createSpan({ text: "Crisp 工具" });
+    const list = card.createDiv({ cls: "launchpad-tool-groups" });
+    for (const group of groups) {
+      const row = list.createDiv({ cls: "launchpad-tool-group" });
+      row.createDiv({ cls: "launchpad-tool-group-label", text: group.label });
+      const tools = row.createDiv({ cls: "launchpad-tool-list" });
+      for (const tool of group.tools) {
+        const button = tools.createEl("button", { cls: "launchpad-tool" });
+        addIcon(button, tool.icon, "launchpad-tool-icon");
+        button.createSpan({ text: tool.name });
+        button.addEventListener("click", () => {
+          if (!this.app.commands.executeCommandById(tool.command)) {
+            new Notice(`Crisp Launchpad：「${tool.name}」暂时打不开`);
+          }
+        });
+      }
+    }
   }
 
   renderTodayReviewSummary(parent) {
@@ -2642,10 +2753,10 @@ class LaunchpadRenderer {
     const generate = addButton(actions, "生成下一批行动", "launchpad-btn is-primary");
     generate.title =
       suggestions.length > 0
-        ? `将生成 ${suggestions.length} 条去重后的 Now 行动`
+        ? `将生成 ${suggestions.length} 条去重后的行动，写入${this.plugin.usesTempo() ? " Tempo" : " Now/"}`
         : "当前没有新的复盘行动";
-    const openNow = addButton(actions, "打开 Now/");
-    openNow.addEventListener("click", () => this.plugin.activateNowView());
+    const openNow = addButton(actions, this.plugin.actionBoardLabel());
+    openNow.addEventListener("click", () => this.plugin.openActionBoard());
     generate.addEventListener("click", async () => {
       generate.disabled = true;
       try {
@@ -2658,7 +2769,7 @@ class LaunchpadRenderer {
           await this.plugin.createAction(suggestion);
         }
         await this.plugin.refreshActionSnapshots({ silent: true });
-        new Notice(`Crisp Launchpad：已生成 ${suggestions.length} 条 Now 行动`);
+        new Notice(`Crisp Launchpad：已生成 ${suggestions.length} 条行动，写入${this.plugin.usesTempo() ? " Tempo" : " Now/"}`);
         await this.view.render();
       } catch (error) {
         new Notice(`Crisp Launchpad：${error.message || error}`, 8000);
@@ -2668,10 +2779,10 @@ class LaunchpadRenderer {
 
     const metrics = overview.createDiv({ cls: "launchpad-review-metrics" });
     for (const [value, label, detail] of [
-      [openTasks.length, "未完成", "Now/ 当前行动"],
+      [openTasks.length, "未完成", this.plugin.usesTempo() ? "Tempo 当前行动" : "Now/ 当前行动"],
       [tasks.filter((task) => task.bucket === "overdue").length, "逾期", "需要重排或关闭"],
       [tasks.filter((task) => task.bucket === "waiting").length, "等待", "需要跟进阻塞"],
-      [completedTasks.length, "已完成", "保留在 Markdown 清单"],
+      [completedTasks.length, "已完成", this.plugin.usesTempo() ? "今天在 Tempo 完成" : "保留在 Markdown 清单"],
       [writebacks.length, "待回写与复核", "判断哪些产出需要沉淀"],
       [staleInbox.length, "积压收件箱", "检查仍待整理的材料"],
     ]) {
@@ -3745,7 +3856,7 @@ class CrispLaunchpadView extends ItemView {
       this.readSnapshot("health"),
       this.readSnapshot("content"),
       this.readSnapshot("index"),
-      this.plugin.readNowTasks(),
+      this.plugin.readActions(),
       this.plugin.resolveWorkspaceProfile(),
     ]);
     if (nonce !== this.renderNonce) return;
@@ -3857,7 +3968,7 @@ class CrispPanelRenderer {
     title.createSpan({ text: "ANKS 行动面板" });
     header.createDiv({
       cls: "crisp-panel-subtitle",
-      text: "捕获 → 待整理 → 行动 · Now/ 为唯一行动源",
+      text: `捕获 → 待整理 → 行动 · ${this.plugin.usesTempo() ? "Tempo" : "Now/"} 为唯一行动源`,
     });
     const stats = header.createDiv({ cls: "crisp-panel-stats" });
     for (const [value, label] of [
@@ -3897,12 +4008,13 @@ class CrispPanelRenderer {
 
   renderTask(parent, task) {
     const row = parent.createDiv({ cls: "crisp-panel-task" });
-    const checkbox = row.createEl("button", {
+    /* Tempo 的行动只读：完成要在 Tempo 里做（重复提醒、子任务、日历同步都在那边），点行打开 Tempo。 */
+    const checkbox = task.source === "tempo" ? null : row.createEl("button", {
       cls: "now-task-checkbox",
       attr: { "aria-label": task.done ? "恢复行动" : "完成行动" },
     });
-    setIcon(checkbox, "check");
-    checkbox.addEventListener("click", async (event) => {
+    if (checkbox) setIcon(checkbox, "check");
+    checkbox?.addEventListener("click", async (event) => {
       event.stopPropagation();
       checkbox.disabled = true;
       try {
@@ -3922,7 +4034,11 @@ class CrispPanelRenderer {
     if (task.due) {
       meta.createSpan({ text: task.time ? `📅 ${task.due} ⏰ ${task.time}` : `📅 ${task.due}` });
     }
-    makeClickable(row, () => this.plugin.activateNowView(), `打开 Now 看板：${task.title}`);
+    makeClickable(
+      row,
+      () => (task.source === "tempo" ? this.plugin.openAction(task) : this.plugin.activateNowView()),
+      task.source === "tempo" ? `在 Tempo 打开：${task.title}` : `打开 Now 看板：${task.title}`,
+    );
   }
 
   renderCapture(parent) {
@@ -4053,16 +4169,14 @@ class CrispPanelRenderer {
     title.createSpan({ text: "快速入口" });
     const actions = section.createDiv({ cls: "crisp-panel-actions" });
     const newAction = addButton(actions, "新建行动");
-    const openNow = addButton(actions, "打开 Now 看板");
+    const openNow = addButton(actions, this.plugin.usesTempo() ? "打开 Tempo" : "打开 Now 看板");
     const openLaunchpad = addButton(actions, "打开启动台");
     if (this.activeTab !== "capture") {
       const capture = addButton(actions, "捕获", "launchpad-btn is-primary");
       capture.addEventListener("click", () => this.view.setPanelTab("capture"));
     }
-    newAction.addEventListener("click", () => {
-      new QuickCaptureModal(this.app, this.plugin, this.view, "action").open();
-    });
-    openNow.addEventListener("click", () => this.plugin.activateNowView());
+    newAction.addEventListener("click", () => this.plugin.openNewAction(this.view));
+    openNow.addEventListener("click", () => this.plugin.openActionBoard());
     openLaunchpad.addEventListener("click", () => this.plugin.activateView());
   }
 
@@ -4147,7 +4261,7 @@ class CrispPanelView extends ItemView {
 
   async render() {
     const nonce = ++this.renderNonce;
-    const tasks = await this.plugin.readNowTasks();
+    const tasks = await this.plugin.readActions();
     const pages = collectPages(this.app);
     const bookmarks = this.plugin.readBookmarks();
     if (nonce !== this.renderNonce) return;
@@ -4386,12 +4500,12 @@ class QuickCaptureModal extends Modal {
     action.addEventListener("click", async () => {
       try {
         action.disabled = true;
-        await this.plugin.createAction({
+        const target = await this.plugin.createAction({
           text: this.text,
           due: this.due,
           project: this.project,
         });
-        new Notice("Crisp Launchpad：行动已加入 Now/");
+        new Notice(`Crisp Launchpad：行动已加入 ${target === "Crisp Tempo" ? "Tempo" : "Now/"}`);
         this.close();
         await this.plugin.refreshActionSnapshots({ silent: true });
         await this.view?.render?.();
@@ -5084,7 +5198,7 @@ class CrispLaunchpadPlugin extends Plugin {
     this.addRibbonIcon(CRISP_LAUNCHPAD_ICON_ID, "打开 Crisp Launchpad", () => this.activateView());
     // Mobile already exposes the Now view in the right drawer; avoid a duplicate bottom-bar shortcut.
     if (!Platform.isMobile) {
-      this.addRibbonIcon(CRISP_NOW_ICON_ID, "打开 Crisp Now 行动看板", () => this.activateNowView());
+      this.addRibbonIcon(CRISP_NOW_ICON_ID, "打开行动看板", () => this.openActionBoardFresh());
     }
     this.addCommand({
       id: "open-crisp-launchpad-view",
@@ -5129,7 +5243,7 @@ class CrispLaunchpadPlugin extends Plugin {
       callback: async () => {
         await this.activateView();
         const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_LAUNCHPAD)[0];
-        new QuickCaptureModal(this.app, this, leaf?.view).open();
+        this.openQuickCapture(leaf?.view);
       },
     });
     this.addCommand({
@@ -5138,7 +5252,8 @@ class CrispLaunchpadPlugin extends Plugin {
       callback: async () => {
         await this.activateView();
         const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_LAUNCHPAD)[0];
-        new QuickCaptureModal(this.app, this, leaf?.view, "action").open();
+        await this.readActions();
+        this.openNewAction(leaf?.view);
       },
     });
     this.addCommand({
@@ -5171,7 +5286,13 @@ class CrispLaunchpadPlugin extends Plugin {
         }
       },
     });
-    this.registerObsidianProtocolHandler("crisp-now", () => this.activateNowView());
+    this.registerObsidianProtocolHandler("crisp-now", () => this.openActionBoardFresh());
+    /* Tempo 只在任务真的变了才发 crisp-tempo:state；它是行动来源时，看板跟着刷新。 */
+    this.registerEvent(
+      this.app.workspace.on("crisp-tempo:state", () => {
+        if (this.actionSource === "tempo") this.refreshViews();
+      }),
+    );
     this.addSettingTab(new CrispLaunchpadSettingTab(this.app, this));
 
     this.registerEvent(
@@ -5791,6 +5912,16 @@ class CrispLaunchpadPlugin extends Plugin {
   async createAction({ text, due = "", project = "", link = "" }) {
     const clean = String(text ?? "").trim();
     if (!clean) throw new Error("行动不能为空");
+    if (this.usesTempo()) {
+      const notes = [due ? `截止 ${due}` : "", project ? `#${project}` : ""].filter(Boolean).join(" · ");
+      await this.tempoApi().createTaskFromSource({
+        sourceId: launchpadActionSourceId(clean),
+        title: clean,
+        ...(notes ? { description: `来自 Crisp Launchpad · ${notes}` } : {}),
+        ...(link ? { notePath: String(link) } : {}),
+      });
+      return "Crisp Tempo";
+    }
     return this.enqueueNowMutation(async () => {
       const path = await this.ensureActionFile();
       const file = this.app.vault.getAbstractFileByPath(path);
@@ -5828,6 +5959,88 @@ class CrispLaunchpadPlugin extends Plugin {
       topic,
       "--write",
     ]);
+  }
+
+  hasCommand(id) {
+    return Boolean(this.app.commands?.findCommand?.(id));
+  }
+
+  /* 速记交给 Pulse（它管速记和写作活跃度）；Pulse 没开时用 Launchpad 自带的弹窗。 */
+  openQuickCapture(view) {
+    const command = "crisp-pulse:quick-memo";
+    if (this.app.plugins?.enabledPlugins?.has("crisp-pulse") && this.hasCommand(command)) {
+      if (this.app.commands.executeCommandById(command)) return;
+    }
+    this.openOwnCaptureModal(view);
+  }
+
+  openOwnCaptureModal(view) {
+    new QuickCaptureModal(this.app, this, view).open();
+  }
+
+  tempoApi() {
+    if (!this.app.plugins?.enabledPlugins?.has(TEMPO_PLUGIN_ID)) return null;
+    const tempo = this.app.plugins?.plugins?.[TEMPO_PLUGIN_ID];
+    if (!tempo || !(Number(tempo.actionsApiVersion) >= 1)) return null;
+    if (typeof tempo.getActionOverview !== "function" || typeof tempo.createTaskFromSource !== "function") return null;
+    return tempo;
+  }
+
+  /* 行动的统一读口：Tempo 可用时读 Tempo，否则（没装、没激活、读失败）退回 Now/。
+     actionSource 记下这次用的是哪边，新建和打开都跟着它走。 */
+  async readActions() {
+    const tempo = this.tempoApi();
+    if (tempo) {
+      try {
+        const overview = await tempo.getActionOverview();
+        if (overview?.licensed && Array.isArray(overview.tasks)) {
+          this.actionSource = "tempo";
+          return overview.tasks.map(tempoSummaryToAction);
+        }
+      } catch (error) {
+        console.warn("[Crisp Launchpad] reading Crisp Tempo failed, falling back to Now/:", error);
+      }
+    }
+    this.actionSource = "now";
+    return this.readNowTasks();
+  }
+
+  usesTempo() {
+    return this.actionSource === "tempo" && Boolean(this.tempoApi());
+  }
+
+  actionBoardLabel() {
+    return this.usesTempo() ? "打开 Tempo" : "打开 Now/";
+  }
+
+  /* 入口（功能区、命令、obsidian://crisp-now）可能早于任何视图渲染，先确定来源再打开。 */
+  async openActionBoardFresh() {
+    await this.readActions();
+    await this.openActionBoard();
+  }
+
+  async openActionBoard() {
+    if (this.usesTempo() && this.app.commands.executeCommandById(`${TEMPO_PLUGIN_ID}:open-tempo-view`)) return;
+    await this.activateNowView();
+  }
+
+  /* Tempo 的行动交给 Tempo 打开并选中；Now/ 的行动照旧打开所在行。 */
+  async openAction(task, openTarget) {
+    if (task?.source === "tempo") {
+      try {
+        await this.tempoApi()?.revealTask?.(task.tempoId);
+      } catch (error) {
+        new Notice(`Crisp Launchpad：${error.message || error}`);
+      }
+      return;
+    }
+    openTarget(task?.origin?.path || task?.path || NOW_ACTION_PATH, task?.title);
+  }
+
+  /* 新建行动：Tempo 下用 Tempo 自己的快速新建（日期、项目、估时都在那边），否则用 Launchpad 弹窗。 */
+  openNewAction(view) {
+    if (this.usesTempo() && this.app.commands.executeCommandById(`${TEMPO_PLUGIN_ID}:quick-add-task`)) return;
+    new QuickCaptureModal(this.app, this, view, "action").open();
   }
 
   async readNowTasks() {
@@ -6306,6 +6519,9 @@ module.exports.markProcessedContent = markProcessedContent;
 module.exports.normalizeProjectTag = normalizeProjectTag;
 module.exports.parseNowTaskLine = parseNowTaskLine;
 module.exports.parseNowTasks = parseNowTasks;
+module.exports.tempoSummaryToAction = tempoSummaryToAction;
+module.exports.launchpadActionSourceId = launchpadActionSourceId;
+module.exports.availableCrispTools = availableCrispTools;
 module.exports.isDateKey = isDateKey;
 module.exports.isTimeKey = isTimeKey;
 module.exports.normalizeTimeKey = normalizeTimeKey;

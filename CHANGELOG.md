@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 — 2026-11-03
+
+- 装了并激活 Crisp Tempo 时，行动以 Tempo 为准：行动台、侧栏面板、复盘都读 Tempo，新建行动写进 Tempo，点行动在 Tempo 里打开；没有 Tempo 时照旧用 `Now/`。
+- 速记交给 Crisp Pulse；Pulse 没开时用自带速记。
+- 「今天」页新增 Crisp 工具入口，按捕获 / 规划 / 检索 / 创作分组，只显示已启用的插件。
+
 ## 0.2.15 — 2026-10-09
 
 - 行动台标题旁新增「负荷 N/上限」徽章：N = 今天 + 逾期，超过上限时显示警示态。上限取自 `actions.json` 的 `load.limit`（`Now/` 文件 frontmatter 的 `wip_limit`，默认 5），计数跟随实时 Now 数据，不受旧快照影响。
