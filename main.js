@@ -87,9 +87,7 @@ function crispRegisterIcons() {
 crispRegisterIcons();
 
 const VIEW_TYPE_LAUNCHPAD = "crisp-launchpad-view";
-const VIEW_TYPE_NOW = "crisp-now-view";
 const VIEW_TYPE_PANEL = "crisp-launchpad-panel-view";
-const NOW_ACTION_PATH = "Now/行动.md";
 const CONTENT_STAGES = [
   "intake",
   "brief",
@@ -116,10 +114,6 @@ const AUTO_ROUTE_DEBOUNCE_MS = 1800;
 const AUTO_ROUTE_COOLDOWN_MS = 2500;
 const AUTO_HEALTH_REBUILD_MS = 90 * 1000;
 const REVIEW_DONE_COOLDOWN_DAYS = 14;
-const REMINDER_INTERVAL_MS = 30 * 1000;
-const REMINDER_START_DELAY_MS = 4000;
-const REMINDER_GRACE_MS = 12 * 60 * 60 * 1000;
-const REMINDER_KEY_LIMIT = 200;
 const PAGES = [
   { id: "today", name: "今天" },
   { id: "create", name: "创作" },
@@ -253,7 +247,6 @@ function detectWorkspaceCapabilities(paths = [], extra = {}) {
     perTopic,
     hasCli: extra.cliAvailable === true,
     hasSnapshots: extra.snapshotsPresent === true,
-    hasActionLayer: list.some((p) => p === "Now/行动.md" || p.startsWith("Now/")),
     hasIndex: list.some((p) => p === "Start Here.md"),
     hasAgentContract: list.some((p) => p === "AGENTS.md"),
     hasCore: list.some((p) => p.startsWith("Core/")),
@@ -271,7 +264,6 @@ function resolveWorkspaceProfile(capabilities, mode = "auto") {
   if (WORKSPACE_MODES.includes(mode) && mode !== "auto") return mode;
   if (Array.isArray(caps.contentTopics) && caps.contentTopics.length) return "content-ops";
   if (Array.isArray(caps.knowledgeTopics) && caps.knowledgeTopics.length) return "knowledge";
-  if (caps.hasActionLayer) return "actions-only";
   return "actions-only";
 }
 
@@ -409,8 +401,6 @@ const DEFAULT_SETTINGS = {
   openOnStartup: true,
   allowSnapshotRefresh: true,
   autoRouteEnabled: false,
-  remindersEnabled: true,
-  remindedKeys: [],
   panelOnStartup: false,
   /* auto = 按库结构自动选择形态；其余为显式选择 */
   workspaceMode: "auto",
@@ -461,20 +451,6 @@ function isDateKey(value) {
     probe.getMonth() === month - 1 &&
     probe.getDate() === day
   );
-}
-
-function normalizeTimeKey(value) {
-  const match = String(value ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return "";
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return "";
-  if (hours > 23 || minutes > 59) return "";
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-}
-
-function isTimeKey(value) {
-  return normalizeTimeKey(value) !== "";
 }
 
 function startOfMonday(date) {
@@ -546,19 +522,6 @@ function firstMeaningfulLine(value, fallback = "速记") {
     .find(Boolean);
   const unquoted = String(line ?? "").replace(/^#+\s*/, "").trim();
   return sanitizeTitle(unquoted, fallback);
-}
-
-function normalizeProjectTag(value) {
-  const text = String(value ?? "").trim().replace(/^#/, "").replace(/^project\//i, "");
-  return text.replace(/[\s#/]+/g, "-").replace(/^-+|-+$/g, "");
-}
-
-/* 写回时只清理会破坏标签 token 的字符（空白 / #），保留 `/` 以支持 Obsidian 的嵌套标签。
-   否则 #project/知识/回写 会被静默改写成 #project/知识-回写，属于静默改写用户数据。 */
-function safeProjectTag(value) {
-  const text = String(value ?? "").trim().replace(/^#/, "").replace(/^project\//i, "");
-  if (!text) return "";
-  return /[\s#]/.test(text) ? normalizeProjectTag(text) : text.replace(/^-+|-+$/g, "");
 }
 
 /* 与 ANKS 侧 vault_sweeper 的判定保持一致：这三种状态都算已归位。 */
@@ -633,102 +596,10 @@ function buildInboxNote(text, inboxType = "scratch", now = new Date(), topic = "
   };
 }
 
-function appendActionTask(existing, text, due = "", project = "") {
-  let line = `- [ ] ${String(text ?? "").trim().split(/\r?\n/)[0] || "未命名行动"}`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(due)) line += ` 📅 ${due}`;
-  const tag = normalizeProjectTag(project);
-  if (tag) line += ` #project/${tag}`;
-  const eol = detectEol(existing);
-  const base = String(existing ?? "").replace(/\s*$/, "");
-  return `${base}${base ? eol : ""}${line}${eol}`;
-}
-
-const MANAGED_TASK_TAGS = new Set(["waiting", "blocked", "待回复", "等待", "阻塞"]);
-
-function isManagedTaskTag(tag) {
-  const normalized = String(tag ?? "").toLowerCase();
-  return normalized.startsWith("project/") || MANAGED_TASK_TAGS.has(normalized);
-}
-
-function cleanTaskTitle(text) {
-  return String(text ?? "")
-    .replace(/[📅⏳🛫➕✅]\s*\d{4}-\d{2}-\d{2}/gu, "")
-    .replace(/⏰\s*\d{1,2}:\d{2}/gu, "")
-    .replace(/[\uFE0E\uFE0F\u200B-\u200D]/gu, "")
-    /* 只移除插件托管的标签（#project/… 与等待态）。标题里手写的其它 #token 原样保留，
-       否则「修复 #123 的 bug」会在读入时变成「修复 的 bug」。 */
-    .replace(/(?<!\w)#([^\s#]+)/g, (match, tag) => (isManagedTaskTag(tag) ? "" : match))
-    .replace(/\s+/g, " ")
-    .trim() || "未命名行动";
-}
-
-function parseNowTaskLine(line, path, lineNumber, today = new Date()) {
-  const match = String(line).match(/^\s*[-*+]\s+\[([ xX])\]\s+(.+?)\s*$/);
-  if (!match) return null;
-  const raw = match[2];
-  const tags = [...raw.matchAll(/(?<!\w)#([^\s#]+)/g)].map((item) => item[1]);
-  const normalizedTags = tags.map((tag) => tag.toLowerCase());
-  const pickDate = (emoji) => {
-    const found = raw.match(new RegExp(`${emoji}\\s*(\\d{4}-\\d{2}-\\d{2})`));
-    return isDateKey(found?.[1]) ? found[1] : "";
-  };
-  const due = pickDate("📅");
-  const scheduled = pickDate("⏳");
-  const start = pickDate("🛫");
-  const created = pickDate("➕");
-  const doneAt = pickDate("✅");
-  const time = normalizeTimeKey(raw.match(/⏰\s*(\d{1,2}:\d{2})/)?.[1]);
-  const done = match[1].toLowerCase() === "x";
-  const waitingTags = new Set(["waiting", "blocked", "待回复", "等待", "阻塞"]);
-  const waiting = normalizedTags.some((tag) => waitingTags.has(tag));
-  const todayKey = dateKey(today);
-  const effectiveDate = due || scheduled;
-  let bucket = "anytime";
-  if (!done) {
-    if (waiting) bucket = "waiting";
-    else if (effectiveDate && effectiveDate < todayKey) bucket = "overdue";
-    else if (effectiveDate && effectiveDate === todayKey) bucket = "today";
-    else if (effectiveDate && effectiveDate > todayKey) bucket = "upcoming";
-    else if (start && start > todayKey) bucket = "upcoming";
-    else if (start && start === todayKey) bucket = "today";
-  }
-  const projectTag = tags.find((tag) => tag.toLowerCase().startsWith("project/"));
-  return {
-    id: `${path}:${lineNumber}`,
-    path,
-    line: lineNumber,
-    rawLine: String(line),
-    title: cleanTaskTitle(raw),
-    done,
-    due,
-    scheduled,
-    start,
-    created,
-    time,
-    doneAt,
-    waiting,
-    tags,
-    project: projectTag ? projectTag.slice("project/".length) : "",
-    bucket: done ? "done" : bucket,
-  };
-}
-
-function parseNowTasks(documents, today = new Date()) {
-  const tasks = [];
-  for (const document of documents) {
-    String(document.content ?? "")
-      .split(/\r?\n/)
-      .forEach((line, index) => {
-        const task = parseNowTaskLine(line, document.path, index + 1, today);
-        if (task) tasks.push(task);
-      });
-  }
-  return tasks;
-}
-
 /* 分工契约（docs/ROLE-CONTRACT.md）：装了且激活 Crisp Tempo 时，行动以 Tempo 为准。
    Launchpad 只读 Tempo 的 getActionOverview()，换成看板用的行动形状；完成、改期都回 Tempo 做。 */
 const TEMPO_PLUGIN_ID = "crisp-tempo";
+const TEMPO_REQUIRED_HINT = "行动由 Crisp Tempo 管理，请先启用并激活 Tempo";
 
 function tempoSummaryToAction(item) {
   const done = item?.bucket === "done";
@@ -808,29 +679,6 @@ function availableCrispTools(enabledPlugins, hasCommand) {
   })).filter((group) => group.tools.length);
 }
 
-function reminderMoment(task) {
-  if (!task || task.done) return null;
-  const date = isDateKey(task.due)
-    ? task.due
-    : isDateKey(task.scheduled)
-      ? task.scheduled
-      : isDateKey(task.start)
-        ? task.start
-        : "";
-  const time = normalizeTimeKey(task.time);
-  if (!date || !time) return null;
-  const [year, month, day] = date.split("-").map(Number);
-  const [hours, minutes] = time.split(":").map(Number);
-  const at = new Date(year, month - 1, day, hours, minutes, 0, 0);
-  if (isNaN(at.getTime())) return null;
-  return {
-    date,
-    time,
-    at,
-    key: `${task.path || ""}::${task.title || ""}::${date}::${time}`,
-  };
-}
-
 const BOOKMARK_KIND_LABEL = {
   file: "文件",
   folder: "文件夹",
@@ -898,33 +746,6 @@ function captureTargetTopic(app, topics = [], preferredTopic = "") {
   if (available.includes(preferredTopic)) return preferredTopic;
   if (available.includes("self-media")) return "self-media";
   return available[0] || "";
-}
-
-function taskLine(task) {
-  const title = String(task.title ?? "").trim() || "未命名行动";
-  const done = Boolean(task.done);
-  const created = isDateKey(task.created) ? " ➕ " + task.created : "";
-  const start = isDateKey(task.start) ? ` 🛫 ${task.start}` : "";
-  const scheduled = isDateKey(task.scheduled) ? ` ⏳ ${task.scheduled}` : "";
-  const due = isDateKey(task.due) ? ` 📅 ${task.due}` : "";
-  const time = isTimeKey(task.time) ? ` ⏰ ${normalizeTimeKey(task.time)}` : "";
-  const doneAt = done && isDateKey(task.doneAt) ? ` ✅ ${task.doneAt}` : "";
-  /* 标题里手写的标签保持原位，不再被搬到行尾。 */
-  const inlineTags = new Set(
-    [...title.matchAll(/(?<!\w)#([^\s#]+)/g)].map((match) => match[1].toLowerCase()),
-  );
-  const extraTags = (task.tags || []).filter((tag) => {
-    const normalized = tag.toLowerCase();
-    if (inlineTags.has(normalized)) return false;
-    return !normalized.startsWith("project/") && !MANAGED_TASK_TAGS.has(normalized);
-  });
-  if (task.waiting) {
-    const waitingTag = (task.tags || []).find((tag) => MANAGED_TASK_TAGS.has(tag.toLowerCase()));
-    extraTags.unshift(waitingTag || "waiting");
-  }
-  const project = safeProjectTag(task.project);
-  const tagText = extraTags.map((tag) => ` #${tag}`).join("");
-  return "- [" + (done ? "x" : " ") + "] " + title + start + created + scheduled + due + time + doneAt + tagText + (project ? " #project/" + project : "");
 }
 
 function contentSlug(value, fallback = "UNTITLED") {
@@ -1289,9 +1110,6 @@ function eventBridgeKind(path) {
   const lower = normalized.toLowerCase();
   const isMarkdown = lower.endsWith(".md");
   const isControlData = lower.endsWith(".yaml") || lower.endsWith(".yml");
-  if (normalized.startsWith("Now/") && isMarkdown) {
-    return "actions";
-  }
   if (
     (normalized.startsWith("Topics/") || normalized.startsWith("Core/")) &&
     (isMarkdown || isControlData)
@@ -1386,23 +1204,6 @@ function pageLabel(page) {
 
 const BLOCKING_ACTION_PREFIX = "处理系统阻塞：";
 
-/* 由「处理系统阻塞：CODE」生成的行动，在最新 health 已没有该 blocking 时视为已解除。
-   health 不是有效报告（没有 findings 数组）时一律不判定。 */
-function resolvedBlockingActions(tasks = [], health = null) {
-  const data = health?.data || health;
-  if (!data || !Array.isArray(data.findings)) return [];
-  const active = new Set(
-    data.findings
-      .filter((finding) => finding.severity === "blocking" || finding.severity === "error")
-      .map((finding) => textOr(finding.code, "blocking")),
-  );
-  return tasks.filter((task) => {
-    if (task.done || !textOr(task.title).startsWith(BLOCKING_ACTION_PREFIX)) return false;
-    const code = textOr(task.title).slice(BLOCKING_ACTION_PREFIX.length).trim();
-    return Boolean(code) && !active.has(code);
-  });
-}
-
 function suggestReviewActions({
   tasks = [],
   pages = [],
@@ -1443,7 +1244,7 @@ function suggestReviewActions({
   }
 
   const overdue = tasks.filter((task) => !task.done && task.bucket === "overdue");
-  if (overdue.length) push("复盘并重排当前逾期行动", "Now");
+  if (overdue.length) push("复盘并重排当前逾期行动", "行动");
 
   const writebacks = findings.filter((finding) => finding.code === "PENDING_WRITEBACK");
   let writebackCount = 0;
@@ -1472,7 +1273,7 @@ function suggestReviewActions({
   }
 
   const waiting = tasks.filter((task) => !task.done && task.bucket === "waiting");
-  if (waiting.length) push("跟进等待中的行动", "Now");
+  if (waiting.length) push("跟进等待中的行动", "行动");
   push("完成本周复盘并生成下一批行动", "复盘");
 
   return candidates.slice(0, Math.max(0, Number(max) || 0));
@@ -1815,7 +1616,7 @@ class LaunchpadRenderer {
     addIcon(title, CRISP_NOW_ICON_ID);
     title.createSpan({ text: "行动台" });
     const usesTempo = this.plugin.usesTempo();
-    const sourceLabel = usesTempo ? "Tempo" : "Now/";
+    const sourceLabel = usesTempo ? "Tempo" : "未连接 Tempo";
     title.createSpan({ cls: "launchpad-badge", text: sourceLabel });
     const headerActions = header.createDiv({ cls: "launchpad-actions" });
     const snapshot = this.snapshots.actions;
@@ -1839,14 +1640,13 @@ class LaunchpadRenderer {
       0,
     );
 
-    // Now/ is the action authority. A successful snapshot can still be stale
-    // after an external edit, disabled refresh, or a calendar-day change.
+    // Tempo is the action authority; its live data wins over a possibly stale snapshot.
     const useLive = Array.isArray(this.snapshots.tasks);
     const countsSource = useLive ? liveCounts : (snapshot?.counts || liveCounts);
     const totalCount = useLive ? liveTotal : snapshotTotal;
 
     // Same rule as actions_snapshot.py: today + overdue against the
-    // snapshot's limit (Now/ frontmatter wip_limit, default 5).
+    // snapshot's limit (default 5).
     const wipLimit = Number(snapshot?.load?.limit) || 5;
     const wipActive = Number(countsSource.overdue || 0) + Number(countsSource.today || 0);
     const wipOver = wipActive > wipLimit;
@@ -1856,7 +1656,7 @@ class LaunchpadRenderer {
     });
     wipBadge.title = wipOver
       ? `今天 + 逾期共 ${wipActive} 项，超过上限 ${wipLimit}：先完成或改到以后`
-      : `今天 + 逾期共 ${wipActive} 项，上限 ${wipLimit}${usesTempo ? "" : "（Now/ 文件 frontmatter 的 wip_limit 可调）"}`;
+      : `今天 + 逾期共 ${wipActive} 项，上限 ${wipLimit}`;
 
     const age = snapshotAge(snapshot?.generated_at || snapshot);
     const ageText = snapshotAgeLabel(age);
@@ -1877,14 +1677,14 @@ class LaunchpadRenderer {
     refresh.disabled =
       !this.plugin.settings.allowSnapshotRefresh || !this.plugin.canRunAnks();
     if (!this.plugin.canRunAnks()) {
-      refresh.title = "移动端直接读写 Now/，快照请在桌面端刷新";
+      refresh.title = "快照请在桌面端刷新";
     }
     const capture = addButton(headerActions, "速记");
     const newAction = addButton(headerActions, "新建行动");
-    const openNow = addButton(headerActions, this.plugin.actionBoardLabel(), "launchpad-btn is-accent");
+    const openNow = addButton(headerActions, "打开 Tempo", "launchpad-btn is-accent");
     openNow.addEventListener("click", () => this.plugin.openActionBoard());
     capture.addEventListener("click", () => this.plugin.openQuickCapture(this.view));
-    newAction.addEventListener("click", () => this.plugin.openNewAction(this.view));
+    newAction.addEventListener("click", () => this.plugin.openNewAction());
     refresh.addEventListener("click", async () => {
       refresh.disabled = true;
       try {
@@ -1903,8 +1703,8 @@ class LaunchpadRenderer {
       ["waiting", "等待"],
       ["upcoming", "即将"],
       ["anytime", "随时"],
-      /* 只有 Tempo 有收件箱（还没排进计划的任务）；Now/ 没有这一档。 */
-      ...(usesTempo ? [["inbox", "收件箱"]] : []),
+      /* Tempo 收件箱：还没排进计划的任务。 */
+      ["inbox", "收件箱"],
     ];
 
     const groups = new Map((snapshot?.groups || []).map((group) => [group.id, group.items || []]));
@@ -1955,6 +1755,12 @@ class LaunchpadRenderer {
 
       bodyWrap.empty();
 
+      if (!usesTempo) {
+        this.renderEmpty(bodyWrap, `${TEMPO_REQUIRED_HINT}，行动会显示在这里`);
+        statusEl.setText("数据源：未连接 Crisp Tempo");
+        return;
+      }
+
       if (!currentFilter) {
         const grid = bodyWrap.createDiv({ cls: "launchpad-action-grid" });
         const overdueTasks = getBucketTasks("overdue");
@@ -1979,7 +1785,7 @@ class LaunchpadRenderer {
         this.renderActionItems(laterList, [...waitingTasks, ...upcomingTasks], 8);
 
         const baseStatus = useLive
-          ? `数据源：${usesTempo ? "Crisp Tempo" : "Now/ 实时解析"} · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`
+          ? `数据源：Crisp Tempo · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`
           : `数据源：${snapshot?.source?.label || "ANKS 行动快照"} · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`;
         statusEl.setText(`${baseStatus} · 点击上方指标可单独筛选`);
       } else {
@@ -2015,7 +1821,7 @@ class LaunchpadRenderer {
         }
 
         const baseStatus = useLive
-          ? `数据源：${usesTempo ? "Crisp Tempo" : "Now/ 实时解析"} · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`
+          ? `数据源：Crisp Tempo · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`
           : `数据源：${snapshot?.source?.label || "ANKS 行动快照"} · ${totalCount} 条未完成行动${completedTotal ? ` · ${completedTotal} 条已完成` : ""}`;
         statusEl.setText(`${baseStatus} · 正在聚焦「${filterMeta.label}」· 再次点击上方指标返回双栏`);
       }
@@ -2753,9 +2559,9 @@ class LaunchpadRenderer {
     const generate = addButton(actions, "生成下一批行动", "launchpad-btn is-primary");
     generate.title =
       suggestions.length > 0
-        ? `将生成 ${suggestions.length} 条去重后的行动，写入${this.plugin.usesTempo() ? " Tempo" : " Now/"}`
+        ? `将生成 ${suggestions.length} 条去重后的行动，写入 Tempo`
         : "当前没有新的复盘行动";
-    const openNow = addButton(actions, this.plugin.actionBoardLabel());
+    const openNow = addButton(actions, "打开 Tempo");
     openNow.addEventListener("click", () => this.plugin.openActionBoard());
     generate.addEventListener("click", async () => {
       generate.disabled = true;
@@ -2769,7 +2575,7 @@ class LaunchpadRenderer {
           await this.plugin.createAction(suggestion);
         }
         await this.plugin.refreshActionSnapshots({ silent: true });
-        new Notice(`Crisp Launchpad：已生成 ${suggestions.length} 条行动，写入${this.plugin.usesTempo() ? " Tempo" : " Now/"}`);
+        new Notice(`Crisp Launchpad：已生成 ${suggestions.length} 条行动，写入 Tempo`);
         await this.view.render();
       } catch (error) {
         new Notice(`Crisp Launchpad：${error.message || error}`, 8000);
@@ -2779,10 +2585,10 @@ class LaunchpadRenderer {
 
     const metrics = overview.createDiv({ cls: "launchpad-review-metrics" });
     for (const [value, label, detail] of [
-      [openTasks.length, "未完成", this.plugin.usesTempo() ? "Tempo 当前行动" : "Now/ 当前行动"],
+      [openTasks.length, "未完成", "Tempo 当前行动"],
       [tasks.filter((task) => task.bucket === "overdue").length, "逾期", "需要重排或关闭"],
       [tasks.filter((task) => task.bucket === "waiting").length, "等待", "需要跟进阻塞"],
-      [completedTasks.length, "已完成", this.plugin.usesTempo() ? "今天在 Tempo 完成" : "保留在 Markdown 清单"],
+      [completedTasks.length, "已完成", "今天在 Tempo 完成"],
       [writebacks.length, "待回写与复核", "判断哪些产出需要沉淀"],
       [staleInbox.length, "积压收件箱", "检查仍待整理的材料"],
     ]) {
@@ -2820,8 +2626,8 @@ class LaunchpadRenderer {
         right.createSpan({ text: actionItemMeta(task) });
         makeClickable(
           row,
-          () => new NowTaskEditModal(this.app, this.plugin, this.view, task).open(),
-          `编辑行动：${task.title}`,
+          () => this.plugin.openAction(task),
+          `在 Tempo 打开：${task.title}`,
         );
       }
     }
@@ -2943,7 +2749,6 @@ class LaunchpadRenderer {
       }
       if (entry.readmePath) items.push([`${topic} 说明`, "Topic 目标与边界", "book-open", entry.readmePath]);
     }
-    if (capabilities.hasActionLayer) items.push(["行动清单", "跨 Topic 下一步", "check-circle", NOW_ACTION_PATH]);
     if (capabilities.hasAgentContract) items.push(["Agent 契约", "AGENTS.md 工作规则", "settings", "AGENTS.md"]);
     if (capabilities.hasCore) items.push(["Core 知识区", "概念 · 方法 · 政策 · 模式", "layers", "Core"]);
     if (capabilities.hasSidecar) items.push(["Sidecar 工具区", "CLI · 工具 · 技能 · 索引", "package", "Sidecar"]);
@@ -2974,11 +2779,9 @@ class LaunchpadRenderer {
         }
       });
     }
-    if (capabilities.hasActionLayer) {
-      const panel = addButton(actions, "行动面板");
-      quickCount += 1;
-      panel.addEventListener("click", () => this.plugin.activatePanelView());
-    }
+    const panel = addButton(actions, "行动面板");
+    quickCount += 1;
+    panel.addEventListener("click", () => this.plugin.activatePanelView());
     const shortcuts = [];
     if (capabilities.hasIndex) shortcuts.push(["开始使用", "Start Here.md"]);
     if (capabilities.hasAgentContract) shortcuts.push(["Agent 契约", "AGENTS.md"]);
@@ -2995,816 +2798,6 @@ class LaunchpadRenderer {
 
   renderEmpty(container, message) {
     container.createDiv({ cls: "launchpad-breakdown-row is-empty", text: message });
-  }
-}
-
-class NowBoardRenderer {
-  constructor(view, tasks) {
-    this.view = view;
-    this.app = view.app;
-    this.plugin = view.plugin;
-    const existing = view.contentEl?.querySelectorAll?.(".now-board");
-    if (existing) existing.forEach((el) => el.remove());
-    this.root = view.contentEl.createDiv({ cls: "now-board" });
-    this.tasks = tasks;
-  }
-
-  render() {
-    this.renderHeader();
-    const openTasks = this.tasks.filter((task) => !task.done);
-    const completedTasks = this.tasks.filter((task) => task.done);
-    const groups = [
-      ["overdue", "逾期"],
-      ["today", "今天"],
-      ["waiting", "等待"],
-      ["upcoming", "即将"],
-      ["anytime", "随时"],
-      ["done", "已完成"],
-    ];
-    const grid = this.root.createDiv({ cls: "now-board-grid" });
-    for (const [bucket, label] of groups) {
-      this.renderColumn(
-        grid,
-        label,
-        bucket === "done"
-          ? completedTasks
-          : openTasks.filter((task) => task.bucket === bucket),
-        bucket,
-        bucket === "done" ? "还没有已完成行动" : "没有行动",
-      );
-    }
-  }
-
-  renderHeader() {
-    const header = this.root.createDiv({ cls: "now-board-header" });
-    const title = header.createDiv({ cls: "now-board-title" });
-    const icon = title.createDiv({ cls: "now-board-icon" });
-    setIcon(icon, CRISP_NOW_ICON_ID);
-    const copy = title.createDiv();
-    copy.createDiv({ cls: "now-board-heading", text: "Now 行动" });
-    copy.createDiv({
-      cls: "now-board-subtitle",
-      text: Platform.isMobile
-        ? "以 Now/行动.md 为数据源 · 触屏轻触卡片可快速调整日期与状态"
-        : "以 Now/行动.md 为唯一数据源的图形看板",
-    });
-
-    const actions = header.createDiv({ cls: "now-board-actions" });
-    const add = addButton(actions, "新增行动", "launchpad-btn is-primary");
-    const refresh = addButton(actions, "刷新快照");
-    const source = addButton(actions, "打开源文件");
-    refresh.disabled = !this.plugin.canRunAnks();
-    if (refresh.disabled) {
-      refresh.title = "移动端直接读写 Now/，快照请在桌面端刷新";
-    }
-    add.addEventListener("click", () => {
-      new QuickCaptureModal(this.app, this.plugin, this.view, "action").open();
-    });
-    refresh.addEventListener("click", async () => {
-      refresh.disabled = true;
-      try {
-        await this.plugin.refreshActionSnapshots();
-        await this.view.render();
-      } catch (error) {
-        new Notice(`Crisp Now：${error.message || error}`);
-        refresh.disabled = false;
-      }
-    });
-    source.addEventListener("click", () => this.view.openTarget(NOW_ACTION_PATH, "Now 行动"));
-
-    const openTasks = this.tasks.filter((task) => !task.done);
-    const completedTasks = this.tasks.filter((task) => task.done);
-    const counts = {
-      overdue: openTasks.filter((task) => task.bucket === "overdue").length,
-      today: openTasks.filter((task) => task.bucket === "today").length,
-      waiting: openTasks.filter((task) => task.bucket === "waiting").length,
-      upcoming: openTasks.filter((task) => task.bucket === "upcoming").length,
-      anytime: openTasks.filter((task) => task.bucket === "anytime").length,
-      done: completedTasks.length,
-    };
-    const stats = this.root.createDiv({ cls: "now-board-stats" });
-    for (const [key, label] of [
-      ["overdue", "逾期"],
-      ["today", "今天"],
-      ["waiting", "等待"],
-      ["upcoming", "即将"],
-      ["anytime", "随时"],
-      ["done", "已完成"],
-    ]) {
-      const stat = stats.createDiv({ cls: `now-board-stat is-${key}` });
-      stat.createDiv({ cls: "now-board-stat-value", text: String(counts[key]) });
-      stat.createDiv({ cls: "now-board-stat-label", text: label });
-    }
-  }
-
-  async moveTaskToBucket(taskId, targetBucket, taskReference = "") {
-    const today = new Date();
-    const todayStr = dateKey(today);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = dateKey(tomorrow);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = dateKey(yesterday);
-
-    let due = "";
-    let waiting = false;
-    if (targetBucket === "done") {
-      try {
-        await this.plugin.updateNowTask(taskId, { done: true, doneAt: todayStr }, taskReference);
-      } catch (error) {
-        new Notice(`Crisp Now：完成行动失败 · ${error.message || error}`);
-      }
-      return;
-    }
-    if (targetBucket === "today") {
-      due = todayStr;
-      waiting = false;
-    } else if (targetBucket === "upcoming") {
-      due = tomorrowStr;
-      waiting = false;
-    } else if (targetBucket === "waiting") {
-      waiting = true;
-      due = "";
-    } else if (targetBucket === "overdue") {
-      due = yesterdayStr;
-      waiting = false;
-    } else if (targetBucket === "anytime") {
-      due = "";
-      waiting = false;
-    }
-
-    try {
-      const updates = { due, waiting };
-      if (targetBucket === "anytime") {
-        updates.scheduled = "";
-        updates.start = "";
-        updates.time = "";
-      }
-      await this.plugin.updateNowTask(taskId, updates, taskReference);
-    } catch (error) {
-      new Notice(`Crisp Now：移动行动失败 · ${error.message || error}`);
-    }
-  }
-
-  renderColumn(parent, title, tasks, bucket, emptyText = "没有行动") {
-    const collapsibleDone = bucket === "done" && tasks.length > 0;
-    if (bucket === "done" && tasks.length === 0) this.view.doneExpanded = false;
-    const doneExpanded = Boolean(this.view.doneExpanded);
-    const columnClasses = ["now-board-column", `is-${bucket}`];
-    if (tasks.length > 0) columnClasses.push("has-tasks");
-    if (collapsibleDone) columnClasses.push(doneExpanded ? "is-expanded" : "is-collapsed");
-    const column = parent.createDiv({ cls: columnClasses.join(" ") });
-    column.dataset.bucket = bucket;
-    const header = column.createDiv({ cls: "now-board-column-header" });
-    header.createSpan({ text: title });
-    const headerActions = header.createDiv({ cls: "now-board-column-header-actions" });
-    headerActions.createSpan({ cls: "now-board-count", text: String(tasks.length) });
-    let toggleIcon = null;
-    if (collapsibleDone) {
-      header.addClass("is-collapsible");
-      toggleIcon = headerActions.createSpan({ cls: "now-board-column-toggle-icon" });
-      setIcon(toggleIcon, doneExpanded ? "chevron-down" : "chevron-right");
-      header.setAttribute("aria-expanded", String(doneExpanded));
-      const updateToggle = () => {
-        const expanded = Boolean(this.view.doneExpanded);
-        column.toggleClass("is-expanded", expanded);
-        column.toggleClass("is-collapsed", !expanded);
-        header.setAttribute("aria-expanded", String(expanded));
-        header.setAttribute(
-          "aria-label",
-          `${expanded ? "收起" : "展开"}已完成行动，${tasks.length} 项`,
-        );
-        header.title = `${expanded ? "收起" : "展开"}已完成行动`;
-        setIcon(toggleIcon, expanded ? "chevron-down" : "chevron-right");
-      };
-      makeClickable(
-        header,
-        () => {
-          this.view.doneExpanded = !this.view.doneExpanded;
-          updateToggle();
-          renderDoneContent();
-        },
-        `${doneExpanded ? "收起" : "展开"}已完成行动，${tasks.length} 项`,
-      );
-      header.setAttribute("aria-expanded", String(doneExpanded));
-      header.title = `${doneExpanded ? "收起" : "展开"}已完成行动`;
-    }
-    const list = column.createDiv({ cls: "now-board-list" });
-
-    const renderDoneContent = () => {
-      list.replaceChildren();
-      if (!this.view.doneExpanded) {
-        list.createDiv({ cls: "now-board-done-summary", text: "完成记录已收起 · 点击标题展开" });
-        return;
-      }
-      for (const task of tasks) this.renderTaskCard(list, task);
-    };
-
-    column.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-      column.addClass("is-dragover");
-    });
-    column.addEventListener("dragleave", (event) => {
-      if (!column.contains(event.relatedTarget)) {
-        column.removeClass("is-dragover");
-      }
-    });
-    column.addEventListener("drop", async (event) => {
-      event.preventDefault();
-      column.removeClass("is-dragover");
-      let taskId = event.dataTransfer.getData("text/plain");
-      let taskReference = "";
-      const rawJson = event.dataTransfer.getData("application/json");
-      if (rawJson) {
-        try {
-          const payload = JSON.parse(rawJson);
-          if (payload?.id) taskId = payload.id;
-          if (payload?.title || payload?.rawLine) taskReference = payload;
-        } catch (_) {}
-      }
-      if (taskId) {
-        await this.moveTaskToBucket(taskId, bucket, taskReference);
-      }
-    });
-
-    if (!tasks.length) {
-      list.createDiv({ cls: "now-board-empty", text: emptyText });
-      return;
-    }
-    if (collapsibleDone) {
-      renderDoneContent();
-      return;
-    }
-    for (const task of tasks) this.renderTaskCard(list, task);
-  }
-
-  renderTaskCard(parent, task) {
-    const card = parent.createDiv({ cls: "now-task-card" });
-    if (!task.done) card.setAttribute("draggable", "true");
-    let isDragging = false;
-    let dragEndTime = 0;
-    card.addEventListener("dragstart", (event) => {
-      if (task.done) {
-        event.preventDefault();
-        return;
-      }
-      isDragging = true;
-      event.dataTransfer.setData("text/plain", task.id);
-      event.dataTransfer.setData(
-        "application/json",
-        JSON.stringify({ id: task.id, title: task.title, rawLine: taskRawLine(task) }),
-      );
-      event.dataTransfer.effectAllowed = "move";
-      card.addClass("is-dragging");
-    });
-    card.addEventListener("dragend", () => {
-      isDragging = false;
-      dragEndTime = Date.now();
-      card.removeClass("is-dragging");
-    });
-
-    const checkbox = card.createEl("button", {
-      cls: `now-task-checkbox${task.done ? " is-done" : ""}`,
-      attr: { "aria-label": task.done ? "恢复行动" : "完成行动" },
-    });
-    setIcon(checkbox, "check");
-    checkbox.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      checkbox.disabled = true;
-      try {
-        await this.plugin.toggleNowTask(task.id, task);
-      } catch (error) {
-        new Notice(`Crisp Now：${error.message || error}`);
-        checkbox.disabled = false;
-      }
-    });
-    const body = card.createDiv({ cls: "now-task-body" });
-    body.createDiv({ cls: "now-task-title", text: task.title });
-    const meta = body.createDiv({ cls: "now-task-meta" });
-    if (task.waiting) meta.createSpan({ cls: "launchpad-badge is-warning", text: "等待中" });
-    if (task.project) meta.createSpan({ cls: "launchpad-badge", text: task.project });
-    if (task.done) {
-      meta.createSpan({
-        cls: "now-task-done-at",
-        text: task.doneAt ? `✅ ${task.doneAt}` : "✅ 已完成",
-      });
-    } else {
-      if (task.start) meta.createSpan({ text: `🛫 ${task.start}` });
-      if (task.due) {
-        meta.createSpan({ text: task.time ? `📅 ${task.due} ⏰ ${task.time}` : `📅 ${task.due}` });
-      } else if (task.scheduled) {
-        meta.createSpan({
-          text: task.time ? `⏳ ${task.scheduled} ⏰ ${task.time}` : `⏳ ${task.scheduled}`,
-        });
-      } else if (task.time) {
-        meta.createSpan({ text: `⏰ ${task.time}` });
-      }
-    }
-    if (task.path !== NOW_ACTION_PATH) meta.createSpan({ text: task.path.replace(/^Now\//, "") });
-    makeClickable(
-      card,
-      () => {
-        if (isDragging || Date.now() - dragEndTime < 200) return;
-        new NowTaskEditModal(this.app, this.plugin, this.view, task).open();
-      },
-      `编辑行动：${task.title}`,
-    );
-  }
-
-}
-
-function dateFromKey(value) {
-  if (!isDateKey(value)) return null;
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day);
-}
-
-class CrispDatePicker {
-  constructor(setting, text, initialValue, onChange) {
-    this.setting = setting;
-    this.text = text;
-    this.inputEl = text?.inputEl;
-    this.controlEl = setting?.controlEl;
-    this.doc = this.inputEl?.ownerDocument || document;
-    this.onChange = onChange;
-    this.value = String(initialValue || "").trim();
-    const selected = dateFromKey(this.value);
-    const base = selected || new Date();
-    this.month = new Date(base.getFullYear(), base.getMonth(), 1);
-    this.popover = null;
-
-    if (!this.inputEl || !this.controlEl) return;
-
-    this.controlEl.addClass?.("launchpad-date-control");
-    this.inputEl.type = "text";
-    this.inputEl.readOnly = true;
-    this.inputEl.value = this.value;
-    this.inputEl.placeholder = "选择日期";
-    this.inputEl.addClass?.("launchpad-date-input");
-    this.inputEl.setAttribute?.("aria-haspopup", "dialog");
-    this.inputEl.setAttribute?.("aria-expanded", "false");
-    this.inputEl.setAttribute?.("aria-label", "选择日期");
-
-    this.triggerEl = this.doc.createElement("button");
-    this.triggerEl.type = "button";
-    this.triggerEl.className = "launchpad-date-picker-trigger";
-    this.triggerEl.setAttribute("aria-label", "打开日历");
-    this.triggerEl.setAttribute("title", "打开日历");
-    setIcon(this.triggerEl, "calendar");
-    this.controlEl.appendChild(this.triggerEl);
-
-    this.onToggle = () => this.toggle();
-    this.onInputKeydown = (event) => {
-      if (["Enter", " ", "ArrowDown"].includes(event.key)) {
-        event.preventDefault();
-        this.open();
-      }
-    };
-    this.inputEl.addEventListener("click", this.onToggle);
-    this.inputEl.addEventListener("keydown", this.onInputKeydown);
-    this.triggerEl.addEventListener("click", this.onToggle);
-  }
-
-  toggle() {
-    if (this.popover) this.close();
-    else this.open();
-  }
-
-  setValue(value) {
-    this.value = String(value || "").trim();
-    this.inputEl.value = this.value;
-    this.text?.setValue?.(this.value);
-    const selected = dateFromKey(this.value);
-    if (selected) this.month = new Date(selected.getFullYear(), selected.getMonth(), 1);
-    this.onChange?.(this.value);
-    if (this.popover) this.render();
-  }
-
-  open() {
-    if (this.popover || !this.inputEl) return;
-    const popover = this.doc.createElement("div");
-    popover.className = "launchpad-date-picker-popover";
-    popover.setAttribute("role", "dialog");
-    popover.setAttribute("aria-label", "选择日期");
-    const modalRoot = this.setting?.settingEl?.closest?.(
-      ".crisp-launchpad-quick-modal, .crisp-now-edit-modal",
-    );
-    const modalAccent = modalRoot
-      ? this.doc.defaultView?.getComputedStyle(modalRoot).getPropertyValue("--lp-modal-accent").trim()
-      : "";
-    if (modalAccent) popover.style.setProperty("--lp-modal-accent", modalAccent);
-    this.doc.body.appendChild(popover);
-    this.popover = popover;
-    this.render();
-    this.position();
-    this.inputEl.setAttribute("aria-expanded", "true");
-
-    this.onOutsidePointerDown = (event) => {
-      if (this.popover?.contains(event.target) || this.controlEl?.contains(event.target)) return;
-      this.close();
-    };
-    this.onDocumentKeydown = (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        this.close();
-        this.inputEl?.focus?.();
-      }
-    };
-    this.onWindowResize = () => this.position();
-    this.onDocumentScroll = () => this.close();
-    this.doc.addEventListener("pointerdown", this.onOutsidePointerDown, true);
-    this.doc.addEventListener("keydown", this.onDocumentKeydown, true);
-    this.doc.addEventListener("scroll", this.onDocumentScroll, true);
-    this.doc.defaultView?.addEventListener("resize", this.onWindowResize);
-  }
-
-  close() {
-    if (!this.popover) return;
-    this.doc.removeEventListener("pointerdown", this.onOutsidePointerDown, true);
-    this.doc.removeEventListener("keydown", this.onDocumentKeydown, true);
-    this.doc.removeEventListener("scroll", this.onDocumentScroll, true);
-    this.doc.defaultView?.removeEventListener("resize", this.onWindowResize);
-    this.popover.remove();
-    this.popover = null;
-    this.inputEl?.setAttribute?.("aria-expanded", "false");
-  }
-
-  destroy() {
-    this.close();
-    this.inputEl?.removeEventListener?.("click", this.onToggle);
-    this.inputEl?.removeEventListener?.("keydown", this.onInputKeydown);
-    this.triggerEl?.removeEventListener?.("click", this.onToggle);
-    this.triggerEl?.remove?.();
-  }
-
-  createElement(tag, className, text) {
-    const element = this.doc.createElement(tag);
-    if (className) element.className = className;
-    if (text !== undefined) element.textContent = String(text);
-    return element;
-  }
-
-  createButton(className, ariaLabel, iconName) {
-    const button = this.createElement("button", className);
-    button.type = "button";
-    button.setAttribute("aria-label", ariaLabel);
-    button.setAttribute("title", ariaLabel);
-    if (iconName) setIcon(button, iconName);
-    return button;
-  }
-
-  render() {
-    if (!this.popover) return;
-    this.popover.replaceChildren();
-
-    const header = this.createElement("div", "launchpad-date-picker-header");
-    const previous = this.createButton("launchpad-date-picker-nav", "上个月", "chevron-left");
-    const monthLabel = this.createElement(
-      "div",
-      "launchpad-date-picker-month",
-      `${this.month.getFullYear()}年${String(this.month.getMonth() + 1).padStart(2, "0")}月`,
-    );
-    const next = this.createButton("launchpad-date-picker-nav", "下个月", "chevron-right");
-    previous.addEventListener("click", () => {
-      this.month = new Date(this.month.getFullYear(), this.month.getMonth() - 1, 1);
-      this.render();
-      this.position();
-    });
-    next.addEventListener("click", () => {
-      this.month = new Date(this.month.getFullYear(), this.month.getMonth() + 1, 1);
-      this.render();
-      this.position();
-    });
-    header.append(previous, monthLabel, next);
-    this.popover.appendChild(header);
-
-    const weekdays = this.createElement("div", "launchpad-date-picker-weekdays");
-    for (const day of ["一", "二", "三", "四", "五", "六", "日"]) {
-      weekdays.appendChild(this.createElement("div", "launchpad-date-picker-weekday", day));
-    }
-    this.popover.appendChild(weekdays);
-
-    const grid = this.createElement("div", "launchpad-date-picker-days");
-    const firstDay = new Date(this.month.getFullYear(), this.month.getMonth(), 1);
-    const mondayOffset = (firstDay.getDay() + 6) % 7;
-    const gridStart = new Date(this.month.getFullYear(), this.month.getMonth(), 1 - mondayOffset);
-    const today = dateKey(new Date());
-    const selected = this.value;
-    for (let index = 0; index < 42; index += 1) {
-      const date = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + index);
-      const key = dateKey(date);
-      const currentMonth = date.getMonth() === this.month.getMonth();
-      const classes = ["launchpad-date-picker-day"];
-      if (!currentMonth) classes.push("is-outside-month");
-      if (key === today) classes.push("is-today");
-      if (key === selected) classes.push("is-selected");
-      const button = this.createButton(classes.join(" "), key);
-      button.textContent = String(date.getDate());
-      button.setAttribute("aria-pressed", key === selected ? "true" : "false");
-      button.tabIndex = key === selected || (!selected && key === today) ? 0 : -1;
-      button.addEventListener("click", () => {
-        this.setValue(key);
-        this.close();
-      });
-      grid.appendChild(button);
-    }
-    this.popover.appendChild(grid);
-
-    const footer = this.createElement("div", "launchpad-date-picker-footer");
-    const clear = this.createButton("launchpad-btn launchpad-btn-sm", "清除日期");
-    clear.textContent = "清除";
-    clear.addEventListener("click", () => {
-      this.setValue("");
-      this.close();
-    });
-    const todayButton = this.createButton("launchpad-btn launchpad-btn-sm is-primary", "选择今天");
-    todayButton.textContent = "今天";
-    todayButton.addEventListener("click", () => {
-      this.setValue(today);
-      this.close();
-    });
-    footer.append(clear, todayButton);
-    this.popover.appendChild(footer);
-  }
-
-  position() {
-    if (!this.popover || !this.inputEl) return;
-    const view = this.doc.defaultView;
-    if (!view) return;
-    const rect = this.inputEl.getBoundingClientRect();
-    const width = this.popover.offsetWidth || 304;
-    const height = this.popover.offsetHeight || 360;
-    const left = Math.max(8, Math.min(rect.left, view.innerWidth - width - 8));
-    let top = rect.bottom + 8;
-    if (top + height > view.innerHeight - 8) top = Math.max(8, rect.top - height - 8);
-    this.popover.style.left = `${left}px`;
-    this.popover.style.top = `${top}px`;
-  }
-}
-
-class NowTaskEditModal extends Modal {
-  constructor(app, plugin, view, task) {
-    super(app);
-    this.plugin = plugin;
-    this.view = view;
-    this.initialTitle = task.title;
-    this.task = { ...task };
-    this.datePickers = [];
-  }
-
-  onOpen() {
-    this.contentEl.empty();
-    this.contentEl.addClass("crisp-now-edit-modal");
-    this.contentEl.createEl("h2", { text: "编辑行动" });
-
-    const presets = this.contentEl.createDiv({ cls: "crisp-now-presets" });
-    const todayStr = dateKey(new Date());
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = dateKey(tomorrow);
-
-    let dueInput;
-    let duePicker;
-    let waitingToggle;
-
-    const setPreset = (dueVal, waitingVal) => {
-      this.task.due = dueVal;
-      this.task.waiting = waitingVal;
-      if (duePicker) duePicker.setValue(dueVal);
-      else if (dueInput) dueInput.setValue(dueVal);
-      if (waitingToggle) waitingToggle.setValue(waitingVal);
-      updatePresetHighlights();
-    };
-
-    const todayBtn = presets.createEl("button", { cls: "crisp-now-preset-btn", text: "☀️ 安排到今天" });
-    const tomorrowBtn = presets.createEl("button", { cls: "crisp-now-preset-btn", text: "📅 安排到明天" });
-    const waitingBtn = presets.createEl("button", { cls: "crisp-now-preset-btn", text: "⏸️ 设为等待" });
-    const clearBtn = presets.createEl("button", { cls: "crisp-now-preset-btn", text: "📥 随时 (清除)" });
-
-    const updatePresetHighlights = () => {
-      todayBtn.toggleClass("is-active", this.task.due === todayStr && !this.task.waiting);
-      tomorrowBtn.toggleClass("is-active", this.task.due === tomorrowStr && !this.task.waiting);
-      waitingBtn.toggleClass("is-active", Boolean(this.task.waiting));
-      clearBtn.toggleClass("is-active", !this.task.due && !this.task.waiting);
-    };
-
-    todayBtn.addEventListener("click", () => setPreset(todayStr, false));
-    tomorrowBtn.addEventListener("click", () => setPreset(tomorrowStr, false));
-    waitingBtn.addEventListener("click", () => setPreset(this.task.due || "", true));
-    clearBtn.addEventListener("click", () => setPreset("", false));
-    updatePresetHighlights();
-
-    new Setting(this.contentEl)
-      .setName("行动内容")
-      .addText((text) =>
-        text.setValue(this.task.title).onChange((value) => {
-          this.task.title = value;
-        }),
-      );
-
-    const dueSetting = new Setting(this.contentEl)
-      .setName("截止日期")
-      .setDesc("可从 Crisp 日历选择日期；留空表示随时。")
-      .addText((text) => {
-        dueInput = text;
-      });
-    duePicker = new CrispDatePicker(
-      dueSetting,
-      dueInput,
-      this.task.due || "",
-      (value) => {
-        this.task.due = value;
-        updatePresetHighlights();
-      },
-    );
-    this.datePickers.push(duePicker);
-
-    let startInput;
-    const startSetting = new Setting(this.contentEl)
-      .setName("计划开始")
-      .setDesc("可从 Crisp 日历选择日期；留空表示不限开始时间。")
-      .addText((text) => {
-        startInput = text;
-      });
-    const startPicker = new CrispDatePicker(
-      startSetting,
-      startInput,
-      this.task.start || "",
-      (value) => {
-        this.task.start = value;
-      },
-    );
-    this.datePickers.push(startPicker);
-
-    new Setting(this.contentEl)
-      .setName("提醒时间")
-      .setDesc("格式 HH:MM（24 小时制）。只有设置了时间才会触发到点提醒。")
-      .addText((text) =>
-        text.setValue(this.task.time || "").onChange((value) => {
-          this.task.time = value.trim();
-        }),
-      );
-
-    new Setting(this.contentEl)
-      .setName("等待中")
-      .setDesc("开启后任务进入「等待」列，保存时自动管理 #waiting 标签。")
-      .addToggle((toggle) => {
-        waitingToggle = toggle;
-        toggle.setValue(Boolean(this.task.waiting)).onChange((value) => {
-          this.task.waiting = value;
-          updatePresetHighlights();
-        });
-      });
-
-    const editExistingProjects = this.plugin.listProjectTags();
-    let editProjectInput;
-    new Setting(this.contentEl)
-      .setName("项目标签")
-      .setDesc("对应 #project/名称。可自由输入新项目或点击已有项目。")
-      .addText((text) => {
-        editProjectInput = text;
-        const datalistId = "now-edit-project-datalist";
-        if (this.contentEl.createEl) {
-          let datalist = this.contentEl.querySelector?.(`#${datalistId}`);
-          if (!datalist) {
-            datalist = this.contentEl.createEl("datalist", { attr: { id: datalistId } });
-          } else if (datalist.empty) {
-            datalist.empty();
-          }
-          for (const p of editExistingProjects) {
-            datalist.createEl("option", { attr: { value: p } });
-          }
-        }
-        if (text.inputEl?.setAttribute) {
-          text.inputEl.setAttribute("list", datalistId);
-          text.inputEl.setAttribute("autocomplete", "off");
-        }
-        text.setValue(this.task.project || "").onChange((value) => {
-          this.task.project = value.trim();
-          updateEditChipStates();
-        });
-      });
-
-    let updateEditChipStates = () => {};
-    if (editExistingProjects.length > 0) {
-      const chipsRow = this.contentEl.createDiv({ cls: "launchpad-tag-chips" });
-      const chipButtons = [];
-      for (const p of editExistingProjects) {
-        const chip = chipsRow.createEl("button", {
-          cls: `launchpad-tag-chip${this.task.project === p ? " is-active" : ""}`,
-          text: `#${p}`,
-        });
-        chip.type = "button";
-        chip.addEventListener("click", () => {
-          if (this.task.project === p) {
-            this.task.project = "";
-            editProjectInput?.setValue("");
-          } else {
-            this.task.project = p;
-            editProjectInput?.setValue(p);
-          }
-          updateEditChipStates();
-        });
-        chipButtons.push({ p, chip });
-      }
-      updateEditChipStates = () => {
-        for (const item of chipButtons) {
-          item.chip.toggleClass?.("is-active", this.task.project === item.p);
-        }
-      };
-    }
-
-    const actions = this.contentEl.createDiv({ cls: "launchpad-modal-actions" });
-    const remove = addButton(actions, "删除", "launchpad-btn");
-    const save = addButton(actions, "保存", "launchpad-btn is-primary");
-    remove.addEventListener("click", async () => {
-      try {
-        remove.disabled = true;
-        await this.plugin.deleteNowTask(this.task.id, this.task);
-        this.close();
-      } catch (error) {
-        new Notice(`Crisp Now：${error.message || error}`);
-        remove.disabled = false;
-      }
-    });
-    save.addEventListener("click", async () => {
-      const invalid = [];
-      if (this.task.start && !isDateKey(this.task.start)) invalid.push("计划开始");
-      if (this.task.due && !isDateKey(this.task.due)) invalid.push("截止日期");
-      if (this.task.time && !isTimeKey(this.task.time)) invalid.push("提醒时间");
-      if (invalid.length) {
-        new Notice(
-          `Crisp Now：${invalid.join(" / ")} 格式不对 · 日期用 YYYY-MM-DD，时间用 HH:MM`,
-        );
-        return;
-      }
-      try {
-        save.disabled = true;
-        await this.plugin.updateNowTask(this.task.id, this.task, this.task);
-        this.close();
-      } catch (error) {
-        new Notice(`Crisp Now：${error.message || error}`);
-        save.disabled = false;
-      }
-    });
-  }
-
-  onClose() {
-    this.datePickers.forEach((picker) => picker.destroy());
-    this.datePickers = [];
-    this.contentEl.empty();
-  }
-}
-
-class CrispNowView extends ItemView {
-  constructor(leaf, plugin) {
-    super(leaf);
-    this.plugin = plugin;
-    this.renderNonce = 0;
-    this.doneExpanded = false;
-  }
-
-  getViewType() {
-    return VIEW_TYPE_NOW;
-  }
-
-  getDisplayText() {
-    return "Crisp Now";
-  }
-
-  getIcon() {
-    return CRISP_NOW_ICON_ID;
-  }
-
-  async onOpen() {
-    this.contentEl.addClass("crisp-now-view");
-    await this.render();
-  }
-
-  async render() {
-    const nonce = ++this.renderNonce;
-    const tasks = await this.plugin.readNowTasks();
-    if (nonce !== this.renderNonce) return;
-    this.contentEl.empty();
-    new NowBoardRenderer(this, tasks).render();
-  }
-
-  onClose() {
-    this.contentEl.empty();
-  }
-
-  async openTarget(target, label = "") {
-    const file =
-      this.app.vault.getAbstractFileByPath(target) ||
-      this.app.vault.getAbstractFileByPath(`${target}.md`);
-    if (file instanceof TFile) {
-      await this.app.workspace.getLeaf(false).openFile(file);
-      return true;
-    }
-    new Notice(`Crisp Now：未找到「${label || target}」`);
-    return false;
   }
 }
 
@@ -3968,7 +2961,7 @@ class CrispPanelRenderer {
     title.createSpan({ text: "ANKS 行动面板" });
     header.createDiv({
       cls: "crisp-panel-subtitle",
-      text: `捕获 → 待整理 → 行动 · ${this.plugin.usesTempo() ? "Tempo" : "Now/"} 为唯一行动源`,
+      text: "捕获 → 待整理 → 行动 · Tempo 为唯一行动源",
     });
     const stats = header.createDiv({ cls: "crisp-panel-stats" });
     for (const [value, label] of [
@@ -4008,23 +3001,7 @@ class CrispPanelRenderer {
 
   renderTask(parent, task) {
     const row = parent.createDiv({ cls: "crisp-panel-task" });
-    /* Tempo 的行动只读：完成要在 Tempo 里做（重复提醒、子任务、日历同步都在那边），点行打开 Tempo。 */
-    const checkbox = task.source === "tempo" ? null : row.createEl("button", {
-      cls: "now-task-checkbox",
-      attr: { "aria-label": task.done ? "恢复行动" : "完成行动" },
-    });
-    if (checkbox) setIcon(checkbox, "check");
-    checkbox?.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      checkbox.disabled = true;
-      try {
-        await this.plugin.toggleNowTask(task.id, task);
-        await this.view.render();
-      } catch (error) {
-        new Notice(`Crisp 行动面板：${error.message || error}`);
-        checkbox.disabled = false;
-      }
-    });
+    /* 行动只读：完成要在 Tempo 里做（重复提醒、子任务、日历同步都在那边），点行打开 Tempo。 */
     const body = row.createDiv({ cls: "crisp-panel-task-body" });
     body.createDiv({ cls: "crisp-panel-task-title", text: task.title });
     const meta = body.createDiv({ cls: "crisp-panel-task-meta" });
@@ -4034,11 +3011,7 @@ class CrispPanelRenderer {
     if (task.due) {
       meta.createSpan({ text: task.time ? `📅 ${task.due} ⏰ ${task.time}` : `📅 ${task.due}` });
     }
-    makeClickable(
-      row,
-      () => (task.source === "tempo" ? this.plugin.openAction(task) : this.plugin.activateNowView()),
-      task.source === "tempo" ? `在 Tempo 打开：${task.title}` : `打开 Now 看板：${task.title}`,
-    );
+    makeClickable(row, () => this.plugin.openAction(task), `在 Tempo 打开：${task.title}`);
   }
 
   renderCapture(parent) {
@@ -4169,13 +3142,13 @@ class CrispPanelRenderer {
     title.createSpan({ text: "快速入口" });
     const actions = section.createDiv({ cls: "crisp-panel-actions" });
     const newAction = addButton(actions, "新建行动");
-    const openNow = addButton(actions, this.plugin.usesTempo() ? "打开 Tempo" : "打开 Now 看板");
+    const openNow = addButton(actions, "打开 Tempo");
     const openLaunchpad = addButton(actions, "打开启动台");
     if (this.activeTab !== "capture") {
       const capture = addButton(actions, "捕获", "launchpad-btn is-primary");
       capture.addEventListener("click", () => this.view.setPanelTab("capture"));
     }
-    newAction.addEventListener("click", () => this.plugin.openNewAction(this.view));
+    newAction.addEventListener("click", () => this.plugin.openNewAction());
     openNow.addEventListener("click", () => this.plugin.openActionBoard());
     openLaunchpad.addEventListener("click", () => this.plugin.activateView());
   }
@@ -4305,11 +3278,10 @@ class CrispPanelView extends ItemView {
 }
 
 class QuickCaptureModal extends Modal {
-  constructor(app, plugin, view, initialMode = "capture") {
+  constructor(app, plugin, view) {
     super(app);
     this.plugin = plugin;
     this.view = view;
-    this.initialMode = initialMode;
     this.text = "";
     /* 当前 Topic 优先，其次工作区主 Topic；只使用库里真实存在的 Topic。 */
     this.topic = captureTargetTopic(
@@ -4318,20 +3290,15 @@ class QuickCaptureModal extends Modal {
       primaryTopic(plugin.lastCapabilities),
     );
     this.inboxType = "scratch";
-    this.due = "";
-    this.project = "";
-    this.datePickers = [];
   }
 
   onOpen() {
     this.contentEl.empty();
     this.contentEl.addClass("crisp-launchpad-quick-modal");
-    this.contentEl.createEl("h2", { text: this.initialMode === "action" ? "新建行动" : "速记" });
+    this.contentEl.createEl("h2", { text: "速记" });
     this.contentEl.createDiv({
       cls: "launchpad-modal-hint",
-      text: this.plugin.canRunAnks()
-        ? "内容先进入本地 Markdown；速记落 raw/inbox，行动落 Now/。"
-        : "移动端直接写入本地 Markdown；速记落 raw/inbox，行动落 Now/。",
+      text: "速记落到所选 Topic 的 raw/inbox；行动请在 Crisp Tempo 里新建。",
     });
 
     const contentSetting = new Setting(this.contentEl)
@@ -4339,186 +3306,56 @@ class QuickCaptureModal extends Modal {
       .setDesc("第一行会作为标题。")
       .addTextArea((text) => {
         text.inputEl.rows = 6;
-        text.setPlaceholder("写下想法、链接说明或下一步行动…").onChange((value) => {
+        text.setPlaceholder("写下想法或链接说明…").onChange((value) => {
           this.text = value;
         });
       });
     contentSetting.settingEl.addClass("launchpad-quick-content-setting");
 
-    if (this.initialMode !== "action") {
-      new Setting(this.contentEl)
-        .setName("Topic")
-        .setDesc("决定速记进入哪个 Topic 的 raw/inbox。")
-        .addDropdown((dropdown) => {
-          for (const topic of this.plugin.listTopics()) dropdown.addOption(topic, topic);
-          dropdown.setValue(this.topic).onChange((value) => {
-            this.topic = value;
-          });
+    new Setting(this.contentEl)
+      .setName("Topic")
+      .setDesc("决定速记进入哪个 Topic 的 raw/inbox。")
+      .addDropdown((dropdown) => {
+        for (const topic of this.plugin.listTopics()) dropdown.addOption(topic, topic);
+        dropdown.setValue(this.topic).onChange((value) => {
+          this.topic = value;
         });
-
-      new Setting(this.contentEl)
-        .setName("速记类型")
-        .setDesc("用于“存为速记”。")
-        .addDropdown((dropdown) =>
-          dropdown
-            .addOption("scratch", "速记")
-            .addOption("idea", "灵感")
-            .addOption("link", "链接")
-            .setValue(this.inboxType)
-            .onChange((value) => {
-              this.inboxType = value;
-            }),
-        );
-    }
-
-    const todayStr = dateKey(new Date());
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = dateKey(tomorrow);
-
-    let dueInput;
-    let duePicker;
-    const dueSetting = new Setting(this.contentEl)
-      .setName("截止日期")
-      .setDesc("可从 Crisp 日历选择日期；留空表示随时行动。");
-
-    const quickDates = dueSetting.controlEl.createDiv({ cls: "launchpad-quick-dates" });
-    const addDateBtn = (label, dateVal) => {
-      const btn = quickDates.createEl("button", {
-        cls: "launchpad-btn launchpad-btn-sm",
-        text: label,
       });
-      btn.type = "button";
-      btn.addEventListener("click", () => {
-        if (duePicker) duePicker.setValue(dateVal);
-        else {
-          this.due = dateVal;
-          if (dueInput) dueInput.setValue(dateVal);
-        }
-      });
-      return btn;
-    };
-    addDateBtn("今天", todayStr);
-    addDateBtn("明天", tomorrowStr);
-    addDateBtn("清除", "");
 
-    dueSetting.addText((text) => {
-      dueInput = text;
-    });
-    duePicker = new CrispDatePicker(dueSetting, dueInput, this.due, (value) => {
-      this.due = value;
-    });
-    this.datePickers.push(duePicker);
-
-    const existingProjects = this.plugin.listProjectTags();
-    const projectSetting = new Setting(this.contentEl)
-      .setName("项目标签")
-      .setDesc("可选，对应 #project/名称。可自由输入新项目或点击已有项目。");
-
-    let projectInput;
-    projectSetting.addText((text) => {
-      projectInput = text;
-      const datalistId = "launchpad-project-datalist";
-      if (this.contentEl.createEl) {
-        let datalist = this.contentEl.querySelector?.(`#${datalistId}`);
-        if (!datalist) {
-          datalist = this.contentEl.createEl("datalist", { attr: { id: datalistId } });
-        } else if (datalist.empty) {
-          datalist.empty();
-        }
-        for (const p of existingProjects) {
-          datalist.createEl("option", { attr: { value: p } });
-        }
-      }
-      if (text.inputEl?.setAttribute) {
-        text.inputEl.setAttribute("list", datalistId);
-        text.inputEl.setAttribute("autocomplete", "off");
-      }
-      text.setPlaceholder(existingProjects[0] || "工作台");
-      if (this.project) text.setValue(this.project);
-      text.onChange((value) => {
-        this.project = value.trim();
-        updateChipStates();
-      });
-    });
-
-    let updateChipStates = () => {};
-    if (existingProjects.length > 0) {
-      const chipsRow = this.contentEl.createDiv({ cls: "launchpad-tag-chips" });
-      const chipButtons = [];
-      for (const p of existingProjects) {
-        const chip = chipsRow.createEl("button", {
-          cls: `launchpad-tag-chip${this.project === p ? " is-active" : ""}`,
-          text: `#${p}`,
-        });
-        chip.type = "button";
-        chip.addEventListener("click", () => {
-          if (this.project === p) {
-            this.project = "";
-            projectInput?.setValue("");
-          } else {
-            this.project = p;
-            projectInput?.setValue(p);
-          }
-          updateChipStates();
-        });
-        chipButtons.push({ p, chip });
-      }
-      updateChipStates = () => {
-        for (const item of chipButtons) {
-          item.chip.toggleClass?.("is-active", this.project === item.p);
-        }
-      };
-    }
+    new Setting(this.contentEl)
+      .setName("速记类型")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("scratch", "速记")
+          .addOption("idea", "灵感")
+          .addOption("link", "链接")
+          .setValue(this.inboxType)
+          .onChange((value) => {
+            this.inboxType = value;
+          }),
+      );
 
     const actions = this.contentEl.createDiv({ cls: "launchpad-modal-actions" });
-    if (this.initialMode !== "action") {
-      const capture = addButton(actions, "存为速记");
-      capture.addEventListener("click", async () => {
-        try {
-          capture.disabled = true;
-          const path = await this.plugin.createInboxCapture({
-            text: this.text,
-            inboxType: this.inboxType,
-            topic: this.topic,
-          });
-          new Notice(`Crisp Launchpad：已保存 ${path}`);
-          this.close();
-          await this.view?.render?.();
-        } catch (error) {
-          new Notice(`Crisp Launchpad：${error.message || error}`);
-          capture.disabled = false;
-        }
-      });
-    }
-
-    const action = addButton(
-      actions,
-      "创建行动",
-      "launchpad-btn is-primary",
-    );
-    action.addEventListener("click", async () => {
+    const capture = addButton(actions, "存为速记", "launchpad-btn is-primary");
+    capture.addEventListener("click", async () => {
       try {
-        action.disabled = true;
-        const target = await this.plugin.createAction({
+        capture.disabled = true;
+        const path = await this.plugin.createInboxCapture({
           text: this.text,
-          due: this.due,
-          project: this.project,
+          inboxType: this.inboxType,
+          topic: this.topic,
         });
-        new Notice(`Crisp Launchpad：行动已加入 ${target === "Crisp Tempo" ? "Tempo" : "Now/"}`);
+        new Notice(`Crisp Launchpad：已保存 ${path}`);
         this.close();
-        await this.plugin.refreshActionSnapshots({ silent: true });
         await this.view?.render?.();
       } catch (error) {
         new Notice(`Crisp Launchpad：${error.message || error}`);
-        action.disabled = false;
+        capture.disabled = false;
       }
     });
   }
 
   onClose() {
-    this.datePickers.forEach((picker) => picker.destroy());
-    this.datePickers = [];
     this.contentEl.empty();
   }
 }
@@ -4930,7 +3767,7 @@ class CrispLaunchpadSettingTab extends PluginSettingTab {
     new Setting(this.containerEl)
       .setName("启用自动路由与状态同步")
       .setDesc(
-        "监听 Topics/、Core/ 和 Now/ 变更：只在路由真正处理的路径上执行 route fix --min-confidence 1（路由忽略的前缀如 content-projects/、Core/System/ 只重建快照），不启用 Core promotion。移动端不可用。",
+        "监听 Topics/ 和 Core/ 变更：只在路由真正处理的路径上执行 route fix --min-confidence 1（路由忽略的前缀如 content-projects/、Core/System/ 只重建快照），不启用 Core promotion。移动端不可用。",
       )
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.autoRouteEnabled).onChange(async (value) => {
@@ -4950,143 +3787,14 @@ class CrispLaunchpadSettingTab extends PluginSettingTab {
         }),
       );
     new Setting(this.containerEl)
-      .setName("行动提醒")
-      .setDesc(
-        "Obsidian 运行时每 30 秒检查 Now/ 中带时间（⏰ HH:MM）的行动；到点优先发系统通知，不可用时改用应用内弹窗。",
-      )
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.remindersEnabled).onChange(async (value) => {
-          await this.plugin.setRemindersEnabled(value);
-        }),
-      );
-    new Setting(this.containerEl)
       .setName("重新运行启动向导")
-      .setDesc("重新检查 ANKS CLI、Now/ 和快照状态。")
+      .setDesc("重新检查 ANKS CLI 和快照状态。")
       .addButton((button) =>
         button.setButtonText("运行向导").onClick(() => {
           new LaunchpadOnboardingModal(this.app, this.plugin).open();
         }),
       );
   }
-}
-
-/* Now/ 行动行的原地改写。由 CrispLaunchpadPlugin.mutateNowTask 串行调用，避免丢更新。 */
-function fileRevision(file) {
-  const revision = file?.stat?.mtime;
-  return Number.isFinite(revision) ? revision : null;
-}
-
-function taskRawLine(task) {
-  if (!task || typeof task !== "object") return "";
-  return String(task.rawLine ?? task.raw_line ?? task.lineText ?? "");
-}
-
-function taskReference(expected) {
-  if (expected && typeof expected === "object") {
-    return {
-      title: String(expected.title ?? ""),
-      rawLine: taskRawLine(expected),
-    };
-  }
-  return {
-    title: typeof expected === "string" ? expected : "",
-    rawLine: "",
-  };
-}
-
-function assertFileRevision(file, expectedRevision) {
-  if (
-    expectedRevision !== null &&
-    fileRevision(file) !== null &&
-    fileRevision(file) !== expectedRevision
-  ) {
-    throw new Error("行动文件在编辑期间被外部修改，请刷新看板后重试");
-  }
-}
-
-async function processVaultText(plugin, file, transform) {
-  const vault = plugin.app.vault;
-  if (typeof vault.process === "function") {
-    return vault.process(file, transform);
-  }
-  /* Lightweight test doubles and older embedded callers may not expose the
-     native transaction. Keep the old preflight as a degraded fallback. */
-  const expectedRevision = fileRevision(file);
-  const content = await vault.read(file);
-  assertFileRevision(file, expectedRevision);
-  const output = transform(content);
-  assertFileRevision(file, expectedRevision);
-  await vault.modify(file, output);
-  return output;
-}
-
-async function applyNowTaskMutation(plugin, id, mutate, expectedTask = "") {
-  const match = String(id).match(/^(.*):(\d+)$/);
-  if (!match) throw new Error("行动标识无效");
-  const path = match[1];
-  const requestedLineNumber = Number(match[2]);
-  const file = plugin.app.vault.getAbstractFileByPath(path);
-  if (!(file instanceof TFile)) throw new Error("行动文件不存在");
-  const reference = taskReference(expectedTask);
-  const transform = (content) => {
-    const lines = String(content).split(/\r?\n/);
-    let index = requestedLineNumber - 1;
-    let lineNumber = requestedLineNumber;
-    let current = parseNowTaskLine(lines[index] || "", path, lineNumber, new Date());
-    const candidates = [];
-
-    for (let i = 0; i < lines.length; i++) {
-      const candidate = parseNowTaskLine(lines[i], path, i + 1, new Date());
-      if (!candidate) continue;
-      if (reference.rawLine && String(lines[i]) === reference.rawLine) {
-        candidates.push({ index: i, task: candidate });
-      } else if (
-        !reference.rawLine &&
-        reference.title &&
-        cleanTaskTitle(candidate.title) === cleanTaskTitle(reference.title)
-      ) {
-        candidates.push({ index: i, task: candidate });
-      }
-    }
-
-    if (reference.rawLine || reference.title) {
-      if (candidates.length !== 1) {
-        throw new Error("行动已被外部移动或修改，请刷新看板后重试（也可能存在重复任务）");
-      }
-      index = candidates[0].index;
-      lineNumber = index + 1;
-      current = candidates[0].task;
-    }
-
-    if (!current) throw new Error("行动已被移动或删除");
-    const result = mutate({ ...current });
-    if (result === "delete") {
-      lines.splice(index, 1);
-    } else {
-      const indent = (lines[index].match(/^\s*/) || [""])[0];
-      lines[index] = `${indent}${taskLine(result)}`;
-    }
-    return lines.join(detectEol(content));
-  };
-
-  /* Vault.process 把读取、变换和提交放进 Obsidian 的原子写路径；外部
-     修改会在同一提交窗口内基于最新正文重算，而不是覆盖旧全文。 */
-  await processVaultText(plugin, file, transform);
-  try {
-    const snapshotUpdated = await plugin.refreshActionSnapshots({ silent: true });
-    return { saved: true, snapshotUpdated: snapshotUpdated !== false };
-  } catch (error) {
-    new Notice("Crisp Now：行动已保存，快照未更新。可点击“刷新快照”重试。", 8000);
-    return {
-      saved: true,
-      snapshotUpdated: false,
-      error: String(error?.message || error),
-    };
-  }
-}
-
-function detectEol(text) {
-  return /\r\n/.test(String(text ?? "")) ? "\r\n" : "\n";
 }
 
 const AUTO_SYNC_COMPONENT_LABELS = {
@@ -5185,30 +3893,16 @@ class CrispLaunchpadPlugin extends Plugin {
         newAutoSyncComponentState(),
       ]),
     );
-    this.reminderTimer = null;
-    this.reminderRunning = false;
-    this.reminderBootTimer = null;
     this.unloaded = false;
-    this.nowMutationChain = Promise.resolve();
     this.healthRebuildTimer = null;
     this.registerView(VIEW_TYPE_LAUNCHPAD, (leaf) => new CrispLaunchpadView(leaf, this));
-    this.registerView(VIEW_TYPE_NOW, (leaf) => new CrispNowView(leaf, this));
     this.registerView(VIEW_TYPE_PANEL, (leaf) => new CrispPanelView(leaf, this));
     crispRegisterIcons();
     this.addRibbonIcon(CRISP_LAUNCHPAD_ICON_ID, "打开 Crisp Launchpad", () => this.activateView());
-    // Mobile already exposes the Now view in the right drawer; avoid a duplicate bottom-bar shortcut.
-    if (!Platform.isMobile) {
-      this.addRibbonIcon(CRISP_NOW_ICON_ID, "打开行动看板", () => this.openActionBoardFresh());
-    }
     this.addCommand({
       id: "open-crisp-launchpad-view",
       name: "打开 Crisp Launchpad",
       callback: () => this.activateView(),
-    });
-    this.addCommand({
-      id: "open-crisp-now-view",
-      name: "打开 Crisp Now 行动看板",
-      callback: () => this.activateNowView(),
     });
     this.addCommand({
       id: "open-crisp-panel-view",
@@ -5250,10 +3944,7 @@ class CrispLaunchpadPlugin extends Plugin {
       id: "new-action",
       name: "Crisp Launchpad：新建行动",
       callback: async () => {
-        await this.activateView();
-        const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_LAUNCHPAD)[0];
-        await this.readActions();
-        this.openNewAction(leaf?.view);
+        this.openNewAction();
       },
     });
     this.addCommand({
@@ -5286,12 +3977,9 @@ class CrispLaunchpadPlugin extends Plugin {
         }
       },
     });
-    this.registerObsidianProtocolHandler("crisp-now", () => this.openActionBoardFresh());
-    /* Tempo 只在任务真的变了才发 crisp-tempo:state；它是行动来源时，看板跟着刷新。 */
+    /* Tempo 只在任务真的变了才发 crisp-tempo:state：看板刷新，事件桥开着时顺带重建行动快照。 */
     this.registerEvent(
-      this.app.workspace.on("crisp-tempo:state", () => {
-        if (this.actionSource === "tempo") this.refreshViews();
-      }),
+      this.app.workspace.on("crisp-tempo:state", () => this.queueEventBridge("actions")),
     );
     this.addSettingTab(new CrispLaunchpadSettingTab(this.app, this));
 
@@ -5300,8 +3988,7 @@ class CrispLaunchpadPlugin extends Plugin {
         if (
           !file?.path ||
           (!file.path.startsWith("Core/") &&
-            !file.path.startsWith("Topics/") &&
-            !file.path.startsWith("Now/"))
+            !file.path.startsWith("Topics/"))
         ) {
           return;
         }
@@ -5336,7 +4023,6 @@ class CrispLaunchpadPlugin extends Plugin {
       if (!this.settings.hasCompletedOnboarding) {
         new LaunchpadOnboardingModal(this.app, this).open();
       }
-      this.startReminderLoop();
     });
   }
 
@@ -5344,10 +4030,8 @@ class CrispLaunchpadPlugin extends Plugin {
     this.unloaded = true;
     window.clearTimeout(this.refreshTimer);
     window.clearTimeout(this.autoSyncTimer);
-    this.stopReminderLoop();
     this.cancelHealthRebuild();
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_LAUNCHPAD);
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE_NOW);
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_PANEL);
   }
 
@@ -5381,119 +4065,6 @@ class CrispLaunchpadPlugin extends Plugin {
     this.refreshViews();
   }
 
-  canUseSystemNotifications() {
-    return typeof Notification === "function" && Notification.permission === "granted";
-  }
-
-  async requestNotificationPermission() {
-    if (typeof Notification !== "function") return false;
-    if (Notification.permission === "granted") return true;
-    if (Notification.permission === "denied") return false;
-    try {
-      const result = await Notification.requestPermission();
-      return result === "granted";
-    } catch (error) {
-      return false;
-    }
-  }
-
-  async setRemindersEnabled(value) {
-    this.settings.remindersEnabled = value === true;
-    await this.saveSettings();
-    if (this.settings.remindersEnabled) {
-      const granted = await this.requestNotificationPermission();
-      this.startReminderLoop();
-      new Notice(
-        granted
-          ? "Crisp Now：行动提醒已开启（系统通知）"
-          : "Crisp Now：行动提醒已开启（应用内弹窗，系统通知不可用）",
-      );
-    } else {
-      this.stopReminderLoop();
-      new Notice("Crisp Now：行动提醒已关闭");
-    }
-    this.refreshViews();
-  }
-
-  startReminderLoop() {
-    if (this.unloaded || !this.settings.remindersEnabled) return;
-    window.clearInterval(this.reminderTimer);
-    this.reminderTimer = window.setInterval(() => {
-      this.checkNowReminders({ silent: true });
-    }, REMINDER_INTERVAL_MS);
-    window.clearTimeout(this.reminderBootTimer);
-    this.reminderBootTimer = window.setTimeout(() => {
-      this.reminderBootTimer = null;
-      this.checkNowReminders({ silent: true });
-    }, REMINDER_START_DELAY_MS);
-  }
-
-  stopReminderLoop() {
-    window.clearInterval(this.reminderTimer);
-    this.reminderTimer = null;
-    window.clearTimeout(this.reminderBootTimer);
-    this.reminderBootTimer = null;
-  }
-
-  async checkNowReminders(options = {}) {
-    if (this.unloaded) return 0;
-    if (!this.settings.remindersEnabled) return 0;
-    if (this.reminderRunning) return 0;
-    this.reminderRunning = true;
-    let fired = 0;
-    try {
-      const now = new Date();
-      const reminded = new Set(
-        Array.isArray(this.settings.remindedKeys) ? this.settings.remindedKeys : [],
-      );
-      const tasks = await this.readNowTasks();
-      const pending = [];
-      for (const task of tasks) {
-        const moment = reminderMoment(task);
-        if (!moment) continue;
-        const elapsed = now.getTime() - moment.at.getTime();
-        if (elapsed < 0 || elapsed > REMINDER_GRACE_MS) continue;
-        if (reminded.has(moment.key)) continue;
-        pending.push({ task, moment });
-      }
-      for (const item of pending) {
-        reminded.add(item.moment.key);
-        fired += 1;
-        await this.notifyNowReminder(item.task, item.moment);
-      }
-      if (pending.length) {
-        this.settings.remindedKeys = [...reminded].slice(-REMINDER_KEY_LIMIT);
-        await this.saveSettings();
-      }
-    } catch (error) {
-      if (!options.silent) {
-        console.warn("[Crisp Launchpad] Reminder check failed:", error);
-      }
-    } finally {
-      this.reminderRunning = false;
-    }
-    return fired;
-  }
-
-  async notifyNowReminder(task, moment) {
-    const title = `Crisp Now · ${moment.time} 行动提醒`;
-    const body = String(task.title || "未命名行动");
-    if (this.canUseSystemNotifications()) {
-      try {
-        const notification = new Notification(title, { body });
-        notification.onclick = () => {
-          if (typeof window !== "undefined") window.focus?.();
-          this.activateNowView();
-        };
-        return true;
-      } catch (error) {
-        console.warn("[Crisp Launchpad] System notification failed:", error);
-      }
-    }
-    new Notice(`Crisp Now：${body}（${moment.time}）`, 10000);
-    return false;
-  }
-
   handleAutoRouteCandidate(file) {
     if (this.unloaded) return;
     if (textOr(file?.path) === ROUTING_RULES_PATH) {
@@ -5506,6 +4077,12 @@ class CrispLaunchpadPlugin extends Plugin {
     // 但派生的 content-projects/index.md 仍需重建。
     const kind = eventBridgeKind(file?.path) || (indexTopic ? "snapshot" : "");
     if (!kind) return;
+    this.queueEventBridge(kind, indexTopic, cardProject);
+  }
+
+  /* "actions" 来自 Tempo 的 crisp-tempo:state：重建 CLI 用的行动快照，视图跟着刷新。 */
+  queueEventBridge(kind, indexTopic = "", cardProject = null) {
+    if (this.unloaded) return;
     // Local views must follow deletions/renames even when CLI automation is off
     // (including mobile). Merge vault and metadata events into one render.
     window.clearTimeout(this.refreshTimer);
@@ -5616,7 +4193,6 @@ class CrispLaunchpadPlugin extends Plugin {
       try {
         await this.runAnks(["snapshot", "build", "--only", "health"]);
         recordAutoSyncSuccess(this, "health");
-        await this.closeResolvedBlockingActions();
         this.refreshViews();
       } catch (error) {
         this.reportAutoSyncError(error, "health");
@@ -5646,42 +4222,6 @@ class CrispLaunchpadPlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
 
-  async activateNowView() {
-    const workspace = this.app.workspace;
-    const existing = workspace.getLeavesOfType(VIEW_TYPE_NOW)[0] || null;
-    let leaf;
-
-    if (Platform.isMobile) {
-      let rightLeaf = workspace.getRightLeaf?.(false) || null;
-      if (!rightLeaf && typeof workspace.ensureSideLeaf === "function") {
-        try {
-          rightLeaf = await workspace.ensureSideLeaf(VIEW_TYPE_NOW, "right", {
-            active: true,
-          });
-        } catch (error) {
-          console.warn("[Crisp Launchpad] Right sidebar unavailable for Crisp Now:", error);
-        }
-      }
-
-      leaf = rightLeaf || existing || workspace.getLeaf("tab");
-    } else {
-      let existingInRoot = false;
-      if (existing && typeof workspace.iterateRootLeaves === "function") {
-        workspace.iterateRootLeaves((rootLeaf) => {
-          if (rootLeaf === existing) existingInRoot = true;
-        });
-      }
-      leaf = existingInRoot ? existing : workspace.getLeaf("tab");
-    }
-
-    if (leaf !== existing) {
-      const existingState = existing?.getViewState?.() || {};
-      await leaf.setViewState({ ...existingState, type: VIEW_TYPE_NOW, active: true });
-      existing?.detach?.();
-    }
-    workspace.revealLeaf(leaf);
-  }
-
   async activatePanelView() {
     let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_PANEL)[0];
     if (!leaf) {
@@ -5709,11 +4249,6 @@ class CrispLaunchpadPlugin extends Plugin {
   refreshViews() {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_LAUNCHPAD)) {
       if (leaf.view instanceof CrispLaunchpadView) {
-        leaf.view.render();
-      }
-    }
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_NOW)) {
-      if (leaf.view instanceof CrispNowView) {
         leaf.view.render();
       }
     }
@@ -5780,21 +4315,6 @@ class CrispLaunchpadPlugin extends Plugin {
     }
   }
 
-  /* health 重建成功后，关掉阻塞已经解除的「处理系统阻塞：CODE」行动。 */
-  async closeResolvedBlockingActions() {
-    try {
-      const raw = await this.app.vault.adapter.read(`${SNAPSHOT_ROOT}/health.json`);
-      const resolved = resolvedBlockingActions(await this.readNowTasks(), JSON.parse(raw));
-      for (const task of resolved) {
-        await this.updateNowTask(task.id, { done: true }, task.title);
-      }
-      return resolved.length;
-    } catch (error) {
-      console.warn("[Crisp Launchpad] closing resolved blocking actions failed:", error);
-      return 0;
-    }
-  }
-
   /* content-projects/index.md 是派生文件（真源是各项目的 project.yaml），
      由 Sidecar 的 `anks content index` 重建。重建失败不应让项目创建/推进失败。 */
   async syncContentIndex(topic = "") {
@@ -5848,7 +4368,6 @@ class CrispLaunchpadPlugin extends Plugin {
       await this.runAnks(["snapshot", "build"]);
       recordAutoSyncSuccess(this, "snapshot");
       recordAutoSyncSuccess(this, "health");
-      await this.closeResolvedBlockingActions();
       if (!options.silent) new Notice("Crisp Launchpad：系统快照已刷新");
       this.refreshViews();
       return true;
@@ -5869,15 +4388,6 @@ class CrispLaunchpadPlugin extends Plugin {
         await this.app.vault.createFolder(current);
       }
     }
-  }
-
-  async ensureActionFile() {
-    await this.ensureFolder("Now");
-    const path = "Now/行动.md";
-    if (!(await this.app.vault.adapter.exists(path))) {
-      await this.app.vault.create(path, "# 行动\n");
-    }
-    return path;
   }
 
   async uniquePath(path) {
@@ -5912,28 +4422,16 @@ class CrispLaunchpadPlugin extends Plugin {
   async createAction({ text, due = "", project = "", link = "" }) {
     const clean = String(text ?? "").trim();
     if (!clean) throw new Error("行动不能为空");
-    if (this.usesTempo()) {
-      const notes = [due ? `截止 ${due}` : "", project ? `#${project}` : ""].filter(Boolean).join(" · ");
-      await this.tempoApi().createTaskFromSource({
-        sourceId: launchpadActionSourceId(clean),
-        title: clean,
-        ...(notes ? { description: `来自 Crisp Launchpad · ${notes}` } : {}),
-        ...(link ? { notePath: String(link) } : {}),
-      });
-      return "Crisp Tempo";
-    }
-    return this.enqueueNowMutation(async () => {
-      const path = await this.ensureActionFile();
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (!(file instanceof TFile)) throw new Error("无法找到 Now/行动.md");
-      const linkedText = link
-        ? `${clean} [[${String(link).replace(/\.md$/i, "")}]]`
-        : clean;
-      await processVaultText(this, file, (existing) =>
-        appendActionTask(existing, linkedText, due, project),
-      );
-      return path;
+    const tempo = this.tempoApi();
+    if (!tempo) throw new Error(TEMPO_REQUIRED_HINT);
+    const notes = [due ? `截止 ${due}` : "", project ? `#${project}` : ""].filter(Boolean).join(" · ");
+    await tempo.createTaskFromSource({
+      sourceId: launchpadActionSourceId(clean),
+      title: clean,
+      ...(notes ? { description: `来自 Crisp Launchpad · ${notes}` } : {}),
+      ...(link ? { notePath: String(link) } : {}),
     });
+    return "Crisp Tempo";
   }
 
   async markProcessed(file) {
@@ -5986,8 +4484,8 @@ class CrispLaunchpadPlugin extends Plugin {
     return tempo;
   }
 
-  /* 行动的统一读口：Tempo 可用时读 Tempo，否则（没装、没激活、读失败）退回 Now/。
-     actionSource 记下这次用的是哪边，新建和打开都跟着它走。 */
+  /* 行动只认 Crisp Tempo（docs/ROLE-CONTRACT.md）。没装、没激活或读失败时 actionSource 为 "none"，
+     行动台显示提示，新建行动不可用。 */
   async readActions() {
     const tempo = this.tempoApi();
     if (tempo) {
@@ -5998,144 +4496,39 @@ class CrispLaunchpadPlugin extends Plugin {
           return overview.tasks.map(tempoSummaryToAction);
         }
       } catch (error) {
-        console.warn("[Crisp Launchpad] reading Crisp Tempo failed, falling back to Now/:", error);
+        console.warn("[Crisp Launchpad] reading Crisp Tempo failed:", error);
       }
     }
-    this.actionSource = "now";
-    return this.readNowTasks();
+    this.actionSource = "none";
+    return [];
   }
 
   usesTempo() {
     return this.actionSource === "tempo" && Boolean(this.tempoApi());
   }
 
-  actionBoardLabel() {
-    return this.usesTempo() ? "打开 Tempo" : "打开 Now/";
+  runTempoCommand(command) {
+    if (this.tempoApi() && this.app.commands.executeCommandById(`${TEMPO_PLUGIN_ID}:${command}`)) return true;
+    new Notice(`Crisp Launchpad：${TEMPO_REQUIRED_HINT}`);
+    return false;
   }
 
-  /* 入口（功能区、命令、obsidian://crisp-now）可能早于任何视图渲染，先确定来源再打开。 */
-  async openActionBoardFresh() {
-    await this.readActions();
-    await this.openActionBoard();
+  openActionBoard() {
+    this.runTempoCommand("open-tempo-view");
   }
 
-  async openActionBoard() {
-    if (this.usesTempo() && this.app.commands.executeCommandById(`${TEMPO_PLUGIN_ID}:open-tempo-view`)) return;
-    await this.activateNowView();
+  /* 新建行动用 Tempo 自己的快速新建：日期、项目、估时都在那边。 */
+  openNewAction() {
+    this.runTempoCommand("quick-add-task");
   }
 
-  /* Tempo 的行动交给 Tempo 打开并选中；Now/ 的行动照旧打开所在行。 */
-  async openAction(task, openTarget) {
-    if (task?.source === "tempo") {
-      try {
-        await this.tempoApi()?.revealTask?.(task.tempoId);
-      } catch (error) {
-        new Notice(`Crisp Launchpad：${error.message || error}`);
-      }
-      return;
+  /* 行动交给 Tempo 打开并选中。 */
+  async openAction(task) {
+    try {
+      await this.tempoApi()?.revealTask?.(task.tempoId);
+    } catch (error) {
+      new Notice(`Crisp Launchpad：${error.message || error}`);
     }
-    openTarget(task?.origin?.path || task?.path || NOW_ACTION_PATH, task?.title);
-  }
-
-  /* 新建行动：Tempo 下用 Tempo 自己的快速新建（日期、项目、估时都在那边），否则用 Launchpad 弹窗。 */
-  openNewAction(view) {
-    if (this.usesTempo() && this.app.commands.executeCommandById(`${TEMPO_PLUGIN_ID}:quick-add-task`)) return;
-    new QuickCaptureModal(this.app, this, view, "action").open();
-  }
-
-  async readNowTasks() {
-    const files = this.app.vault
-      .getMarkdownFiles()
-      .filter((file) => file.path.startsWith("Now/"));
-    const documents = await Promise.all(
-      files.map(async (file) => ({
-        path: file.path,
-        content: await this.app.vault.read(file),
-      })),
-    );
-    return parseNowTasks(documents, new Date());
-  }
-
-  /* Now/ 的写路径是「读全文 → 改一行 → 写回全文」，并发调用会互相覆盖（丢更新）：
-     同时勾选两条行动时，后一次写入会基于旧快照把前一次改回去。这里把所有变更串行化，
-     面板勾选、看板勾选、拖拽、编辑弹窗共用同一条队列。 */
-  enqueueNowMutation(run) {
-    const previous = this.nowMutationChain || Promise.resolve();
-    const next = previous.then(run, run);
-    this.nowMutationChain = next.then(
-      () => {},
-      () => {},
-    );
-    return next;
-  }
-
-  async mutateNowTask(id, mutate, expectedTitle = "") {
-    const run = () => applyNowTaskMutation(this, id, mutate, expectedTitle);
-    if (typeof this.enqueueNowMutation === "function") {
-      return this.enqueueNowMutation(run);
-    }
-    // Keep the prototype method usable with lightweight test doubles and
-    // older embedded callers that only copied mutateNowTask.
-    const previous = this.nowMutationChain || Promise.resolve();
-    const next = previous.then(run, run);
-    this.nowMutationChain = next.then(
-      () => {},
-      () => {},
-    );
-    return next;
-  }
-
-  async toggleNowTask(id, expectedTitle = "") {
-    return this.mutateNowTask(
-      id,
-      (task) => {
-        const done = !task.done;
-        return parseNowTaskLine(
-          taskLine({
-            ...task,
-            done,
-            doneAt: done ? dateKey(new Date()) : "",
-          }),
-          task.path,
-          task.line,
-          new Date(),
-        );
-      },
-      expectedTitle,
-    );
-  }
-
-  async updateNowTask(id, updates, expectedTitle = "") {
-    return this.mutateNowTask(
-      id,
-      (task) => {
-        const done = updates.done !== undefined ? Boolean(updates.done) : task.done;
-        let doneAt = updates.doneAt !== undefined ? String(updates.doneAt).trim() : task.doneAt;
-        if (!done) {
-          doneAt = "";
-        } else if (!isDateKey(doneAt)) {
-          doneAt = dateKey(new Date());
-        }
-        return {
-          ...task,
-          title: updates.title !== undefined ? String(updates.title).trim() : task.title,
-          start: updates.start !== undefined ? String(updates.start).trim() : task.start,
-          due: updates.due !== undefined ? String(updates.due).trim() : task.due,
-          scheduled:
-            updates.scheduled !== undefined ? String(updates.scheduled).trim() : task.scheduled,
-          time: updates.time !== undefined ? String(updates.time).trim() : task.time,
-          project: updates.project !== undefined ? String(updates.project).trim() : task.project,
-          waiting: updates.waiting !== undefined ? Boolean(updates.waiting) : task.waiting,
-          done,
-          doneAt,
-        };
-      },
-      expectedTitle,
-    );
-  }
-
-  async deleteNowTask(id, expectedTitle = "") {
-    return this.mutateNowTask(id, () => "delete", expectedTitle);
   }
 
   async createContentProject({
@@ -6316,26 +4709,6 @@ class CrispLaunchpadPlugin extends Plugin {
       .sort((left, right) => left.localeCompare(right));
   }
 
-  listProjectTags() {
-    const projects = new Set();
-    try {
-      const allTags = this.app.metadataCache?.getTags?.() || {};
-      for (const tag of Object.keys(allTags)) {
-        if (tag.toLowerCase().startsWith("#project/")) {
-          const name = tag.slice("#project/".length).trim();
-          if (name) projects.add(name);
-        }
-      }
-    } catch {}
-    try {
-      const snapshotTasks = this.snapshots?.action?.data?.tasks || [];
-      for (const t of snapshotTasks) {
-        if (t.project) projects.add(t.project);
-      }
-    } catch {}
-    return Array.from(projects).sort((a, b) => a.localeCompare(b, "zh-CN"));
-  }
-
   /* 探测当前库支持什么，并解析成界面形态。
      设置里 workspaceMode = auto 时由结构决定；用户显式选过则尊重选择。
      每次渲染都重新探测，因此库结构变化会立刻反映到界面上。 */
@@ -6397,14 +4770,12 @@ class CrispLaunchpadPlugin extends Plugin {
       checks.push({ label, detail, ok });
     };
     await addCheck("ANKS CLI", "Sidecar/bin/anks", "用于生成快照和执行确定性转化");
-    await addCheck("原生行动清单", "Now/行动.md", "启动台行动层的数据入口");
     await addCheck("系统状态快照", ".runtime/snapshot/health.json", "健康与索引状态");
     await addCheck("行动快照", ".runtime/snapshot/actions.json", "今天、等待、即将");
     return checks;
   }
 
   async repairEnvironment() {
-    await this.ensureActionFile();
     if (!this.canRunAnks()) {
       throw new Error("移动端不支持本地 CLI 修复");
     }
@@ -6473,7 +4844,6 @@ module.exports.VIEW_TYPE_PANEL = VIEW_TYPE_PANEL;
 module.exports.normalizeBookmarkEntries = normalizeBookmarkEntries;
 module.exports.pageLabel = pageLabel;
 module.exports.capturedToday = capturedToday;
-module.exports.safeProjectTag = safeProjectTag;
 module.exports.isRouterIgnoredPath = isRouterIgnoredPath;
 module.exports.isSettledInboxStatus = isSettledInboxStatus;
 module.exports.inboxTriageItems = inboxTriageItems;
@@ -6500,7 +4870,6 @@ module.exports.contentProjectId = contentProjectId;
 module.exports.contentProjectLabel = contentProjectLabel;
 module.exports.publishedOutputPages = publishedOutputPages;
 module.exports.contentSlug = contentSlug;
-module.exports.appendActionTask = appendActionTask;
 module.exports.buildInboxNote = buildInboxNote;
 module.exports.eventBridgeKind = eventBridgeKind;
 module.exports.contentIndexTopicForPath = contentIndexTopicForPath;
@@ -6510,29 +4879,21 @@ module.exports.parseRouterIgnorePrefixes = parseRouterIgnorePrefixes;
 module.exports.setRouterIgnorePrefixes = setRouterIgnorePrefixes;
 module.exports.ROUTER_IGNORE_PREFIXES = ROUTER_IGNORE_PREFIXES;
 module.exports.ROUTING_RULES_PATH = ROUTING_RULES_PATH;
-module.exports.resolvedBlockingActions = resolvedBlockingActions;
 module.exports.heatLevel = heatLevel;
 module.exports.inferTopicFromPath = inferTopicFromPath;
 module.exports.captureTargetTopic = captureTargetTopic;
 module.exports.normalizeRhythmWeeks = normalizeRhythmWeeks;
 module.exports.markProcessedContent = markProcessedContent;
-module.exports.normalizeProjectTag = normalizeProjectTag;
-module.exports.parseNowTaskLine = parseNowTaskLine;
-module.exports.parseNowTasks = parseNowTasks;
 module.exports.tempoSummaryToAction = tempoSummaryToAction;
 module.exports.launchpadActionSourceId = launchpadActionSourceId;
 module.exports.availableCrispTools = availableCrispTools;
 module.exports.isDateKey = isDateKey;
-module.exports.isTimeKey = isTimeKey;
-module.exports.normalizeTimeKey = normalizeTimeKey;
-module.exports.reminderMoment = reminderMoment;
 module.exports.projectField = projectField;
 module.exports.replaceTemplateTokens = replaceTemplateTokens;
 module.exports.snapshotAge = snapshotAge;
 module.exports.snapshotAgeLabel = snapshotAgeLabel;
 module.exports.suggestReviewActions = suggestReviewActions;
 module.exports.summarizePages = summarizePages;
-module.exports.taskLine = taskLine;
 module.exports.formatYamlScalar = formatYamlScalar;
 module.exports.updateProjectField = updateProjectField;
 module.exports.generateCaptureId = generateCaptureId;
@@ -6540,8 +4901,6 @@ module.exports.formatDateTime = formatDateTime;
 module.exports.formatFullDateTime = formatFullDateTime;
 module.exports.STAGE_ORDER = STAGE_ORDER;
 module.exports.STAGE_LABEL = STAGE_LABEL;
-module.exports.NowBoardRenderer = NowBoardRenderer;
-module.exports.NowTaskEditModal = NowTaskEditModal;
 module.exports.QuickCaptureModal = QuickCaptureModal;
 module.exports.formatShortDate = formatShortDate;
 module.exports.daysBetween = daysBetween;

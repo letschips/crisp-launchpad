@@ -1,9 +1,8 @@
-// Tempo is the action authority when it is installed and activated (docs/ROLE-CONTRACT.md).
+// Crisp Tempo is the only action source (docs/ROLE-CONTRACT.md; Now/ was removed 2026-11-03).
 // Failure modes:
-// - Launchpad keeps showing Now/ while Tempo is the real task list, or shows Tempo when it cannot
-//   add tasks (not activated), so "生成下一批行动" silently fails;
-// - a Tempo read error blanks the dashboard instead of falling back to Now/;
-// - new actions go to Now/ while Tempo is active, or get a source id Tempo rejects;
+// - Launchpad shows tasks from an unactivated Tempo, so "生成下一批行动" silently fails;
+// - a Tempo read error throws instead of showing the "connect Tempo" state;
+// - new actions get written somewhere other than Tempo, or get a source id Tempo rejects;
 // - clicking the same review button twice in a day creates duplicate Tempo tasks.
 const assert = require("node:assert/strict");
 const test = require("node:test");
@@ -26,7 +25,7 @@ const proto = launchpad.prototype;
 // Same pattern as Tempo's src/services/source-tasks.ts SOURCE_ID_RE.
 const TEMPO_SOURCE_ID_RE = /^[a-z0-9-]+:[A-Za-z0-9-]{1,128}$/;
 
-function fakePlugin(tempo, nowTasks = [{ id: "Now/行动.md:3", title: "旧行动", bucket: "today", done: false }]) {
+function fakePlugin(tempo) {
   const created = [];
   const plugin = Object.create(proto);
   plugin.app = {
@@ -35,11 +34,10 @@ function fakePlugin(tempo, nowTasks = [{ id: "Now/行动.md:3", title: "旧行�
       plugins: tempo ? { "crisp-tempo": tempo } : {},
     },
   };
-  plugin.readNowTasks = async () => nowTasks;
-  plugin.enqueueNowMutation = async (run) => run();
-  plugin.ensureActionFile = async () => {
-    created.push("now");
-    throw new Error("wrote Now/");
+  plugin.app.vault = {
+    create: async (path) => created.push(path),
+    modify: async (file) => created.push(file?.path),
+    process: async (file) => created.push(file?.path),
   };
   return { plugin, created };
 }
@@ -69,7 +67,7 @@ function fakeTempo({ licensed = true, fail = false, version = 1 } = {}) {
   };
 }
 
-test("an activated Tempo replaces Now/ as the action source", async () => {
+test("an activated Tempo is the action source", async () => {
   const { plugin } = fakePlugin(fakeTempo());
   const tasks = await plugin.readActions();
   assert.equal(plugin.actionSource, "tempo");
@@ -80,21 +78,23 @@ test("an activated Tempo replaces Now/ as the action source", async () => {
   assert.equal(tasks[0].project, "ANKS");
 });
 
-test("Now/ stays the source when Tempo is missing, not activated, too old or unreadable", async () => {
+test("without a usable Tempo there are no actions, and new actions are refused instead of written elsewhere", async () => {
   for (const tempo of [null, fakeTempo({ licensed: false }), fakeTempo({ version: 0 }), fakeTempo({ fail: true })]) {
-    const { plugin } = fakePlugin(tempo);
+    const { plugin, created } = fakePlugin(tempo);
     const originalWarn = console.warn;
     console.warn = () => {};
     try {
-      const tasks = await plugin.readActions();
-      assert.equal(plugin.actionSource, "now");
-      assert.equal(tasks[0].title, "旧行动");
+      assert.deepEqual(await plugin.readActions(), []);
+      assert.equal(plugin.actionSource, "none");
+      if (!tempo || tempo.actionsApiVersion < 1) {
+        await assert.rejects(plugin.createAction({ text: "x" }), /Crisp Tempo/);
+      }
+      assert.deepEqual(created, []);
     } finally {
       console.warn = originalWarn;
     }
   }
 });
-
 test("new actions go to Tempo with a valid, same-day-stable source id", async () => {
   const tempo = fakeTempo();
   const { plugin, created } = fakePlugin(tempo);

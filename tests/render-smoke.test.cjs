@@ -168,15 +168,28 @@ function makePages() {
   ];
 }
 
-const NOW_MD = [
-  "# 行动",
-  "- [ ] 今天要做的 📅 2026-09-20 #project/ANKS",
-  "- [ ] 等回复 #waiting #project/协作",
-  "- [ ] 带提醒 🛫 2026-09-21 ⏳ 2026-09-22 📅 2026-09-25 ⏰ 09:30",
-  "- [x] 已完成 ✅ 2026-09-19",
-  "- [ ] 内联 #123 的 bug",
-  "- [ ] 嵌套 #project/知识/回写",
-].join("\n");
+/* 行动只认 Crisp Tempo：这里是它 getActionOverview() 返回的条目形状。 */
+const TEMPO_TASKS = [
+  { id: "t1", title: "今天要做的", status: "todo", bucket: "today", focusDate: "2026-09-20", projectTitle: "ANKS" },
+  { id: "t2", title: "等回复", status: "waiting", bucket: "waiting", projectTitle: "协作" },
+  { id: "t3", title: "带截止", status: "todo", bucket: "upcoming", startDate: "2026-09-21", dueDate: "2026-09-25" },
+  { id: "t4", title: "已完成", status: "done", bucket: "done", completedAt: Date.now() },
+  { id: "t5", title: "内联 #123 的 bug", status: "todo", bucket: "anytime" },
+  { id: "t6", title: "未整理", status: "todo", bucket: "inbox" },
+];
+
+function fakeTempo(tasks) {
+  return {
+    actionsApiVersion: 1,
+    async getActionOverview() {
+      return { apiVersion: 1, date: "2026-09-20", licensed: true, tasks };
+    },
+    async createTaskFromSource(input) {
+      return { id: "new", sourceId: input.sourceId, title: input.title, status: "todo" };
+    },
+    async revealTask() {},
+  };
+}
 
 function makeSnapshots({ withGeneratedAt = true } = {}) {
   const stamp = withGeneratedAt ? new Date(Date.now() - 2 * 3600000).toISOString() : undefined;
@@ -217,7 +230,7 @@ function makeSnapshots({ withGeneratedAt = true } = {}) {
     ],
   };
   const index = { schema: "anks-system-snapshot-v1", kind: "index", generated_at: stamp, data: { documents: 597, chunks: 5722 } };
-  const tasks = api.parseNowTasks([{ path: "Now/行动.md", content: NOW_MD }], new Date("2026-09-20T14:00:00+08:00"));
+  const tasks = TEMPO_TASKS.map(api.tempoSummaryToAction);
   return { actions, health, content, index, tasks };
 }
 
@@ -230,14 +243,10 @@ function makeAdapter(store) {
   };
 }
 
-function makeApp({ desktop = false, pages = makePages(), snapshots = makeSnapshots(), nowContent = NOW_MD } = {}) {
-  /* Now/行动.md 必须在文件列表里，否则 readNowTasks() 找不到文件、看板全空 */
-  const nowFile = new mock.TFile("Now/行动.md");
-  const files = [...pages.map((p) => p.file), nowFile];
+function makeApp({ desktop = false, pages = makePages(), snapshots = makeSnapshots(), tempoTasks = TEMPO_TASKS } = {}) {
+  const files = pages.map((p) => p.file);
   const byPath = new Map(pages.map((p) => [p.path, p]));
-  byPath.set("Now/行动.md", { path: "Now/行动.md", frontmatter: {} });
   const store = {
-    "Now/行动.md": nowContent,
     ".runtime/snapshot/actions.json": JSON.stringify(snapshots.actions),
     ".runtime/snapshot/health.json": JSON.stringify(snapshots.health),
     ".runtime/snapshot/content.json": JSON.stringify(snapshots.content),
@@ -272,16 +281,19 @@ function makeApp({ desktop = false, pages = makePages(), snapshots = makeSnapsho
       onLayoutReady: () => {},
       on: () => ({}),
     },
-    commands: { executeCommandById: () => true },
-    plugins: { enabledPlugins: new Set(["crisp-dsh", "crisp-launchpad"]) },
+    commands: { executeCommandById: () => true, findCommand: () => ({}) },
+    plugins: {
+      enabledPlugins: new Set(["crisp-dsh", "crisp-launchpad", ...(tempoTasks ? ["crisp-tempo"] : [])]),
+      plugins: tempoTasks ? { "crisp-tempo": fakeTempo(tempoTasks) } : {},
+    },
     internalPlugins: { getEnabledPluginById: () => null },
   };
 }
 
-async function makePlugin({ desktop = false, mobile = false, pages, snapshots, nowContent } = {}) {
+async function makePlugin({ desktop = false, mobile = false, pages, snapshots, tempoTasks } = {}) {
   mock.Platform.isMobile = mobile;
   const plugin = new api();
-  plugin.app = makeApp({ desktop, pages, snapshots, nowContent });
+  plugin.app = makeApp({ desktop, pages, snapshots, tempoTasks });
   plugin.settings = { openOnStartup: false, allowSnapshotRefresh: true, autoRouteEnabled: false, hasCompletedOnboarding: true };
   await plugin.onload();
   return plugin;
@@ -327,18 +339,6 @@ test("冒烟：缺 generated_at 的快照不能让行动台抛异常（覆盖「
   assert.ok(view.contentEl.children[0].count() > 50);
 });
 
-test("行动快照失败时桌面行动台回退到 Now 真源，不展示旧快照内容", async () => {
-  const plugin = await makePlugin({ desktop: true, nowContent: "- [ ] 真源里的行动 📅 2099-01-01\n" });
-  plugin.autoSyncStatus.actions.error = "snapshot unavailable";
-
-  const { view } = await renderView(plugin, "crisp-launchpad-view");
-  const text = view.contentEl.children[0].allText();
-
-  assert.ok(text.includes("真源里的行动"), "快照失败时应显示从 Now/ 读取的当前行动");
-  assert.ok(text.includes("实时活数据"), "界面应标出当前使用真源数据");
-  assert.ok(!text.includes("过期项"), "快照失败时不能展示旧快照行动");
-});
-
 test("冒烟：Crisp 行动面板四个页签都能渲染且不抛异常", async () => {
   const plugin = await makePlugin({});
   const { view } = await renderView(plugin, "crisp-launchpad-panel-view");
@@ -350,23 +350,6 @@ test("冒烟：Crisp 行动面板四个页签都能渲染且不抛异常", async
       view.renderPanelBody ? view.renderPanelBody() : null;
     }, `面板页签「${tab.name}」渲染抛异常`);
   }
-});
-
-test("冒烟：Crisp Now 看板按行动分桶渲染，含已完成与四时间标记", async () => {
-  const plugin = await makePlugin({});
-  const { view } = await renderView(plugin, "crisp-now-view");
-  view.doneExpanded = true;
-  await view.render();
-  const root = view.contentEl.children[0];
-  assert.ok(root, "Now 看板渲染后应有根容器");
-  const text = root.allText();
-  ["逾期", "今天", "等待", "即将", "随时"].forEach((bucket) => {
-    assert.ok(text.includes(bucket), `看板缺少「${bucket}」列`);
-  });
-  /* 四时间标记与完成日期必须出现在看板上，证明解析→渲染链路通 */
-  assert.ok(text.includes("09:30"), "提醒时间未渲染");
-  assert.ok(text.includes("2026-09-25"), "截止日期未渲染");
-  assert.ok(text.includes("2026-09-19"), "完成日期未渲染");
 });
 
 test("冒烟：mtime 未知的页要显示为未知，不能被算成今天、也不能显示成 1970", async () => {
@@ -412,7 +395,10 @@ test("冒烟：内核状态胶囊报告本机内核，而不是别的插件", as
   const desktop = await makePlugin({ desktop: true });
   let text = (await renderView(desktop, "crisp-launchpad-view")).view.contentEl.children[0].allText();
   assert.ok(text.includes("内核就绪"), "桌面且有内核时应显示「内核就绪」");
-  assert.ok(!text.includes("DSH"), "界面不应再出现 DSH 字样");
+  /* 「Crisp 工具」里可以有 DSH 入口；胶囊本身只报告 ANKS 内核，不能再写 DSH。 */
+  const findPill = (el) => (el.classes?.has("launchpad-kernel-pill") ? el : (el.children || []).map(findPill).find(Boolean));
+  const pill = findPill((await renderView(desktop, "crisp-launchpad-view")).view.contentEl);
+  assert.ok(pill && !pill.allText().includes("DSH"), "内核胶囊不应出现 DSH 字样");
 
   /* 移动端 → 只读（不是「缺失」，因为移动端本来就不跑内核命令） */
   const mobile = await makePlugin({ mobile: true });
@@ -431,14 +417,14 @@ test("冒烟：内核状态胶囊报告本机内核，而不是别的插件", as
   const stranger = await makePlugin({ desktop: true });
   stranger.settings.workspaceMode = "actions-only";
   text = (await renderView(stranger, "crisp-launchpad-view")).view.contentEl.children[0].allText();
-  assert.ok(!text.includes("内核") && !text.includes("DSH"), "仅行动形态不应出现内核胶囊");
+  assert.ok(!text.includes("内核"), "仅行动形态不应出现内核胶囊");
 });
 
 test("冒烟：onload 的注册面齐全（视图 / 命令 / ribbon / 协议）", async () => {
   const plugin = await makePlugin({});
-  assert.equal(plugin._views.size, 3, "应注册 3 个视图");
+  assert.equal(plugin._views.size, 2, "应注册启动台与行动面板 2 个视图（Now 看板已删除）");
   assert.ok(plugin._commands.length >= 6, `命令数偏少：${plugin._commands.length}`);
-  assert.equal(plugin._ribbons.length, 2, "应注册 2 个 ribbon 图标");
+  assert.equal(plugin._ribbons.length, 1, "应只注册启动台 1 个 ribbon 图标（Now 看板已删除）");
   plugin._commands.forEach((cmd) => {
     assert.ok(cmd.id && cmd.name, "命令必须有 id 与 name");
     assert.equal(typeof cmd.callback, "function", `命令 ${cmd.id} 缺少 callback`);
@@ -447,11 +433,15 @@ test("冒烟：onload 的注册面齐全（视图 / 命令 / ribbon / 协议）"
 
 // Failure modes: stale equal counts hide edits/date rollover; stale nonzero counts
 // resurrect deleted tasks; CLI-off delete/rename never reaches a render.
-test("实时行动链路：相同数量的旧快照不能覆盖 Now 的标题和分组", async () => {
+test("实时行动链路：相同数量的旧快照不能覆盖 Tempo 的标题和分组", async () => {
   const snapshots = makeSnapshots();
   snapshots.actions.counts = { overdue: 1, today: 0, waiting: 0, upcoming: 0, anytime: 0 };
   snapshots.actions.groups = [{ id: "overdue", items: [{ title: "旧标题", bucket: "overdue" }] }];
-  const plugin = await makePlugin({ desktop: true, snapshots, nowContent: "- [ ] 新标题 📅 2099-01-01\n" });
+  const plugin = await makePlugin({
+    desktop: true,
+    snapshots,
+    tempoTasks: [{ id: "n", title: "新标题", status: "todo", bucket: "upcoming", dueDate: "2099-01-01" }],
+  });
   const { view } = await renderView(plugin, "crisp-launchpad-view");
   const text = view.contentEl.allText();
   assert.ok(text.includes("新标题"));
@@ -459,7 +449,7 @@ test("实时行动链路：相同数量的旧快照不能覆盖 Now 的标题和
   assert.ok(text.includes("实时活数据"));
 });
 
-// Failure mode: the load badge must follow live Now counts (not stale snapshot
+// Failure mode: the load badge must follow live Tempo counts (not stale snapshot
 // counts) while taking the limit from the snapshot's wip_limit-derived load.
 test("行动台负荷：今天 + 逾期超过 wip 上限时显示警示徽章", async () => {
   const snapshots = makeSnapshots();
@@ -467,7 +457,11 @@ test("行动台负荷：今天 + 逾期超过 wip 上限时显示警示徽章", 
   const plugin = await makePlugin({
     desktop: true,
     snapshots,
-    nowContent: "- [ ] 甲 📅 2000-01-01\n- [ ] 乙 📅 2000-01-02\n- [ ] 以后 📅 2099-01-01\n",
+    tempoTasks: [
+      { id: "a", title: "甲", status: "todo", bucket: "overdue", dueDate: "2000-01-01" },
+      { id: "b", title: "乙", status: "todo", bucket: "overdue", dueDate: "2000-01-02" },
+      { id: "c", title: "以后", status: "todo", bucket: "upcoming", dueDate: "2099-01-01" },
+    ],
   });
   const { view } = await renderView(plugin, "crisp-launchpad-view");
   const find = (el) => (el.textContent === "负荷 2/1" ? el : el.children.map(find).find(Boolean));
@@ -477,41 +471,22 @@ test("行动台负荷：今天 + 逾期超过 wip 上限时显示警示徽章", 
 });
 
 test("行动台负荷：快照没有 load 时按默认上限 5 显示", async () => {
-  const plugin = await makePlugin({ desktop: true, nowContent: "- [ ] 甲 📅 2000-01-01\n" });
+  const plugin = await makePlugin({
+    desktop: true,
+    tempoTasks: [{ id: "a", title: "甲", status: "todo", bucket: "overdue", dueDate: "2000-01-01" }],
+  });
   const { view } = await renderView(plugin, "crisp-launchpad-view");
   assert.ok(view.contentEl.allText().includes("负荷 1/5"));
 });
 
-test("实时行动链路：Now 已清空时不能复活快照中的任务", async () => {
-  const plugin = await makePlugin({ desktop: true, nowContent: "# 行动\n" });
+// Failure mode: without Tempo the dashboard must explain where actions went instead of
+// rendering an empty board (or throwing), and the panel must still render.
+test("没有 Tempo 时行动台显示提示，启动台和面板都不抛异常", async () => {
+  const plugin = await makePlugin({ desktop: true, tempoTasks: null });
   const { view } = await renderView(plugin, "crisp-launchpad-view");
   const text = view.contentEl.allText();
-  assert.ok(text.includes("0 条未完成行动"));
-  assert.ok(!text.includes("过期项"));
-});
-
-test("实时行动链路：关闭事件桥时删除或移出 Now 仍刷新，且不调用 CLI", async () => {
-  for (const event of ["delete", "rename"]) {
-    const plugin = await makePlugin({ desktop: true });
-    plugin.settings.autoRouteEnabled = false;
-    let renders = 0;
-    plugin.refreshViews = () => { renders++; };
-    plugin.runAnks = () => { throw new Error("不应调用 CLI"); };
-    const pending = new Map();
-    const originalSet = window.setTimeout;
-    const originalClear = window.clearTimeout;
-    window.setTimeout = (fn) => { const id = {}; pending.set(id, fn); return id; };
-    window.clearTimeout = (id) => pending.delete(id);
-    try {
-      const file = { path: event === "rename" ? "Archive/行动.md" : "Now/行动.md" };
-      plugin.app.vault._events[event](file, "Now/行动.md");
-      assert.equal(pending.size, 1, "应有一个合并后的视图刷新");
-      for (const fn of pending.values()) fn();
-      assert.equal(renders, 1);
-      assert.deepEqual(plugin.autoSyncDirty, { actions: false, knowledge: false, snapshot: false });
-    } finally {
-      window.setTimeout = originalSet;
-      window.clearTimeout = originalClear;
-    }
-  }
+  assert.ok(text.includes("行动由 Crisp Tempo 管理"), "应提示启用并激活 Tempo");
+  assert.ok(text.includes("未连接 Tempo"));
+  const panel = await renderView(plugin, "crisp-launchpad-panel-view");
+  assert.ok(panel.view.contentEl.children[0], "面板应能渲染");
 });

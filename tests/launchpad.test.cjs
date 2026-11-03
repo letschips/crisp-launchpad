@@ -126,9 +126,7 @@ test("topic inference keeps cross-topic captures in their source topic", () => {
   assert.equal(launchpad.inferTopicFromPath("Now/行动.md"), "self-media");
 });
 
-test("action tasks and processed markers preserve markdown content and supply canonical raw frontmatter", () => {
-  const appended = launchpad.appendActionTask("# 行动\n", "处理收件箱", "2026-09-20", "收件箱");
-  assert.match(appended, /- \[ \] 处理收件箱 📅 2026-09-20 #project\/收件箱/);
+test("processed markers preserve markdown content and supply canonical raw frontmatter", () => {
   const processed = launchpad.markProcessedContent("---\ntype: raw\nowner: topic:self-media\n---\n\n# 标题\n");
   assert.match(processed, /routing_status: processed/);
   assert.match(processed, /# 标题/);
@@ -160,32 +158,6 @@ test("action tasks and processed markers preserve markdown content and supply ca
   assert.match(missingType, /routing_status: processed/);
 });
 
-test("Now board parser keeps task buckets, metadata and stable ids", () => {
-  const tasks = launchpad.parseNowTasks(
-    [
-      {
-        path: "Now/行动.md",
-        content: [
-          "# 行动",
-          "- [ ] 今天完成 📅 2026-09-19 #project/ANKS",
-          "- [ ] 等回复 #waiting #project/协作",
-          "- [x] 已完成",
-        ].join("\n"),
-      },
-    ],
-    new Date("2026-09-19T08:00:00+08:00"),
-  );
-  assert.equal(tasks.length, 3);
-  assert.equal(tasks[0].bucket, "today");
-  assert.equal(tasks[0].title, "今天完成");
-  assert.equal(tasks[0].project, "ANKS");
-  assert.equal(tasks[1].bucket, "waiting");
-  assert.equal(tasks[2].done, true);
-  assert.equal(tasks[0].id, "Now/行动.md:2");
-  assert.match(launchpad.taskLine(tasks[1]), /#waiting/);
-  assert.match(launchpad.taskLine(tasks[1]), /#project\/协作/);
-});
-
 test("command errors are reduced to a short actionable notice", () => {
   const message = launchpad.compactCommandError(
     "",
@@ -215,10 +187,10 @@ test("content project identifiers and YAML updates stay canonical", () => {
   assert.match(updated, /profile: standard-essay/);
 });
 
-test("event bridge only classifies ANKS knowledge and Now paths", () => {
+test("event bridge only classifies ANKS knowledge paths; Now/ is no longer watched", () => {
   assert.equal(launchpad.eventBridgeKind("Topics/self-media/raw/inbox/a.md"), "knowledge");
   assert.equal(launchpad.eventBridgeKind("Topics/self-media/knowledge/a.md"), "knowledge");
-  assert.equal(launchpad.eventBridgeKind("Now/行动.md"), "actions");
+  assert.equal(launchpad.eventBridgeKind("Now/行动.md"), "");
   assert.equal(launchpad.eventBridgeKind(".runtime/snapshot/health.json"), "");
   assert.equal(launchpad.eventBridgeKind("Sidecar/bin/anks"), "");
   assert.equal(
@@ -435,65 +407,6 @@ test("updateProjectField synchronizes stage and status across project.yaml and a
   assert.equal(launchpad.projectField(updatedArticle, "status"), "published");
 });
 
-test("Now task parser preserves emojis and cleans zero-width characters", () => {
-  const line = "- [ ] 🥔 推进 Crisp 核心插件 🚀 📅 2026-09-20 #project/ANKS";
-  const task = launchpad.parseNowTaskLine(line, "Now/行动.md", 1, new Date("2026-09-20T08:00:00+08:00"));
-  assert.equal(task.title, "🥔 推进 Crisp 核心插件 🚀");
-  assert.equal(task.bucket, "today");
-  assert.equal(task.due, "2026-09-20");
-  assert.equal(task.project, "ANKS");
-});
-
-test("Now taskLine correctly manages #waiting tag and removes it when waiting is false", () => {
-  const waitingTask = {
-    title: "等待联调",
-    due: "",
-    scheduled: "",
-    tags: ["feature"],
-    project: "ANKS",
-    done: false,
-    waiting: true,
-  };
-  const lineWithWaiting = launchpad.taskLine(waitingTask);
-  assert.match(lineWithWaiting, /#waiting/);
-  assert.match(lineWithWaiting, /#feature/);
-  assert.match(lineWithWaiting, /#project\/ANKS/);
-
-  // When waiting is toggled to false, #waiting should be eliminated
-  const clearedWaitingTask = {
-    ...waitingTask,
-    tags: ["waiting", "feature"],
-    waiting: false,
-  };
-  const lineWithoutWaiting = launchpad.taskLine(clearedWaitingTask);
-  assert.equal(lineWithoutWaiting.includes("#waiting"), false);
-  assert.match(lineWithoutWaiting, /#feature/);
-});
-
-test("Now task parser utilizes scheduled date as fallback for bucket determination", () => {
-  const line = "- [ ] 准备技术分享 ⏳ 2026-09-21 #project/Dev";
-  const task = launchpad.parseNowTaskLine(line, "Now/行动.md", 1, new Date("2026-09-20T08:00:00+08:00"));
-  assert.equal(task.scheduled, "2026-09-21");
-  assert.equal(task.bucket, "upcoming");
-});
-
-test("Now task round-trip preserves created dates, blocked tags, and inline hash tokens", () => {
-  const today = new Date("2026-09-22T08:00:00+08:00");
-  const line = "- [ ] 修复 #123 的 bug ➕ 2026-09-20 📅 2026-09-22 #blocked";
-  const task = launchpad.parseNowTaskLine(line, "Now/行动.md", 1, today);
-  assert.equal(task.created, "2026-09-20");
-  assert.equal(task.title, "修复 #123 的 bug");
-  assert.equal(task.bucket, "waiting");
-  const written = launchpad.taskLine(task);
-  assert.match(written, /#blocked/);
-  assert.match(written, /➕ 2026-09-20/);
-  assert.match(written, /#123/);
-  const roundTrip = launchpad.parseNowTaskLine(written, "Now/行动.md", 1, today);
-  assert.equal(roundTrip.created, "2026-09-20");
-  assert.equal(roundTrip.title, "修复 #123 的 bug");
-  assert.equal(roundTrip.tags.includes("blocked"), true);
-});
-
 test("published output collection includes canonical project articles and prefers them over legacy duplicates", () => {
   const pages = [
     {
@@ -614,95 +527,6 @@ test("NEW-1: formatDateTime safely formats timestamps (numbers, Dates, strings) 
   assert.equal(launchpad.formatFullDateTime(NaN), todayKey);
 });
 
-test("NEW-2: mutateNowTask protects against line shift and recovers target line by title", async () => {
-  let fileContent = [
-    "- [ ] 任务一 📅 2026-09-20",
-    "- [ ] 任务二 📅 2026-09-21",
-    "- [ ] 任务三 📅 2026-09-22",
-  ].join("\n");
-
-  const mockFile = Object.assign(new mockObsidian.TFile(), { path: "Now/行动.md" });
-  const mockPlugin = {
-    app: {
-      vault: {
-        getAbstractFileByPath: (path) => (path === "Now/行动.md" ? mockFile : null),
-        read: async () => fileContent,
-        modify: async (_, content) => {
-          fileContent = content;
-        },
-      },
-    },
-    refreshActionSnapshots: async () => {},
-  };
-
-  // Bind mutateNowTask method from CrispLaunchpadPlugin prototype
-  const mutateNowTask = launchpad.prototype.mutateNowTask.bind(mockPlugin);
-
-  // 1. Normal mutation when line matches exactly
-  await mutateNowTask("Now/行动.md:2", (task) => ({ ...task, done: true }), "任务二");
-  assert.ok(fileContent.includes("- [x] 任务二 📅 2026-09-21"));
-
-  // Reset file content and simulate an external edit inserting 2 new lines at the top
-  fileContent = [
-    "## 新段落",
-    "- [ ] 外部插入的任务 📅 2026-09-19",
-    "- [ ] 任务一 📅 2026-09-20",
-    "- [ ] 任务二 📅 2026-09-21",
-    "- [ ] 任务三 📅 2026-09-22",
-  ].join("\n");
-
-  // Client still holds old id "Now/行动.md:2" (which is now "外部插入的任务")
-  // But client specifies expectedTitle "任务二".
-  // mutateNowTask should detect mismatch and auto-recover to line 4!
-  await mutateNowTask("Now/行动.md:2", (task) => ({ ...task, done: true }), "任务二");
-
-  // Verify that "任务二" was completed, NOT "外部插入的任务"
-  assert.ok(fileContent.includes("- [ ] 外部插入的任务 📅 2026-09-19"), "外部插入的任务 must NOT be corrupted");
-  assert.ok(fileContent.includes("- [x] 任务二 📅 2026-09-21"), "任务二 must be accurately targeted and completed");
-
-  // 2. If expected title cannot be found anywhere, safely reject
-  await assert.rejects(
-    async () => {
-      await mutateNowTask("Now/行动.md:2", (task) => ({ ...task, done: true }), "已经不存在的任务");
-    },
-    /行动已被外部移动或修改/
-  );
-});
-
-test("F2: duplicate task titles use the original line identity after an external insertion", async () => {
-  const originalLine = "- [ ] 跟进 #project/A";
-  let fileContent = originalLine;
-  const oldTask = launchpad.parseNowTaskLine(originalLine, "Now/行动.md", 1, new Date("2026-09-22T08:00:00+08:00"));
-  const mockFile = Object.assign(new mockObsidian.TFile(), { path: "Now/行动.md" });
-  const mockPlugin = {
-    app: {
-      vault: {
-        getAbstractFileByPath: () => mockFile,
-        read: async () => fileContent,
-        modify: async (_, content) => {
-          fileContent = content;
-        },
-      },
-    },
-    refreshActionSnapshots: async () => {},
-  };
-  const mutateNowTask = launchpad.prototype.mutateNowTask.bind(mockPlugin);
-
-  fileContent = [
-    "- [ ] 跟进 #project/B",
-    originalLine,
-  ].join("\n");
-
-  await mutateNowTask(
-    "Now/行动.md:1",
-    (task) => ({ ...task, done: true }),
-    oldTask,
-  );
-
-  assert.match(fileContent, /^- \[ \] 跟进 #project\/B$/m);
-  assert.match(fileContent, /^- \[x\] 跟进 #project\/A$/m);
-});
-
 test("N1 / F11: handleAutoRouteCandidate sets dirty flag without scheduling immediate timer when autoSyncRunning is true", () => {
   const plugin = {
     settings: { autoRouteEnabled: true },
@@ -710,8 +534,8 @@ test("N1 / F11: handleAutoRouteCandidate sets dirty flag without scheduling imme
     autoSyncRunning: true,
     autoSyncDirty: { actions: false, knowledge: false },
     autoSyncIgnoreUntil: 0,
-    ignoreNowChangeUntil: 0,
     handleAutoRouteCandidate: launchpad.prototype.handleAutoRouteCandidate,
+    queueEventBridge: launchpad.prototype.queueEventBridge,
     runEventBridgeSync: () => {},
   };
 
@@ -735,71 +559,6 @@ test("N1 / F11: handleAutoRouteCandidate sets dirty flag without scheduling imme
   assert.ok(plugin.autoSyncTimer, "Should schedule remaining cooldown timer when idle in cooldown");
   clearTimeout(plugin.autoSyncTimer);
   clearTimeout(plugin.refreshTimer);
-});
-
-test("NEW-P1 / F16: moveTaskToBucket handles target buckets and propagates taskTitle without ReferenceError", async () => {
-  const calls = [];
-  const fakePlugin = {
-    updateNowTask: async (id, updates, expectedTitle) => {
-      calls.push({ id, updates, expectedTitle });
-      return updates;
-    },
-  };
-
-  const fakeContainer = {
-    children: [],
-    querySelectorAll: (selector) => {
-      if (selector === ".now-board") return fakeContainer.children.filter((c) => c.className === "now-board");
-      return [];
-    },
-    createDiv: (opts) => {
-      const el = {
-        className: opts?.cls || "",
-        remove: () => {
-          const idx = fakeContainer.children.indexOf(el);
-          if (idx !== -1) fakeContainer.children.splice(idx, 1);
-        },
-      };
-      fakeContainer.children.push(el);
-      return el;
-    },
-  };
-
-  const fakeView = {
-    plugin: fakePlugin,
-    app: {},
-    contentEl: fakeContainer,
-  };
-
-  // 1. Initial construction creates 1 board
-  const renderer1 = new launchpad.NowBoardRenderer(fakeView, []);
-  assert.equal(fakeContainer.children.length, 1);
-
-  // 2. Second construction cleans up existing board to prevent duplicate NOW views
-  const renderer2 = new launchpad.NowBoardRenderer(fakeView, []);
-  assert.equal(fakeContainer.children.length, 1, "Must clean up existing now-board elements to avoid double views");
-
-  // 3. Test moveTaskToBucket for all buckets with taskTitle
-  const todayStr = new Date().toISOString().slice(0, 10);
-  await renderer2.moveTaskToBucket("Now/行动.md:2", "today", "测试任务");
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].id, "Now/行动.md:2");
-  assert.equal(calls[0].expectedTitle, "测试任务");
-  assert.equal(calls[0].updates.due, todayStr);
-  assert.equal(calls[0].updates.waiting, false);
-
-  await renderer2.moveTaskToBucket("Now/行动.md:2", "waiting", "测试等待");
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].expectedTitle, "测试等待");
-  assert.equal(calls[1].updates.due, "");
-  assert.equal(calls[1].updates.waiting, true);
-
-  // 4. Test moveTaskToBucket without passing taskTitle (default param, must NOT throw ReferenceError)
-  await renderer2.moveTaskToBucket("Now/行动.md:2", "anytime");
-  assert.equal(calls.length, 3);
-  assert.equal(calls[2].expectedTitle, "");
-  assert.equal(calls[2].updates.due, "");
-  assert.equal(calls[2].updates.waiting, false);
 });
 
 test("NEW-P2-C: snapshotAge and date helpers handle invalid inputs and snapshot objects gracefully", () => {
@@ -844,52 +603,6 @@ test("NEW-P2-C: snapshotAge and date helpers handle invalid inputs and snapshot 
   assert.equal(launchpad.dateKeyFromTimestamp("invalid"), "");
   assert.equal(launchpad.dateKeyFromTimestamp(0), "");
   assert.match(launchpad.dateKeyFromTimestamp(now), /^\d{4}-\d{2}-\d{2}$/);
-});
-
-test("NEW-P1-B: NowTaskEditModal preserves initialTitle allowing action renaming and safe deletion", async () => {
-  const fileContent = "- [ ] 旧任务名称 📅 2026-09-20 #project/工作\n";
-  let savedContent = "";
-
-  const fakeFile = Object.assign(new mockObsidian.TFile(), { path: "Now/行动.md" });
-  const fakeVault = {
-    getAbstractFileByPath: () => fakeFile,
-    read: async () => fileContent,
-    modify: async (f, content) => { savedContent = content; },
-  };
-
-  const plugin = new launchpad();
-  plugin.app = { vault: fakeVault };
-  plugin.refreshActionSnapshots = async () => {};
-
-  const task = {
-    id: "Now/行动.md:1",
-    title: "旧任务名称",
-    due: "2026-09-20",
-    project: "工作",
-    waiting: false,
-    done: false,
-    path: "Now/行动.md",
-    line: 1,
-  };
-
-  // 1. Initial modal captures initialTitle
-  const modal = new launchpad.NowTaskEditModal({}, plugin, {}, task);
-  assert.equal(modal.initialTitle, "旧任务名称");
-
-  // 2. User renames task to "全新任务名称"
-  modal.task.title = "全新任务名称";
-
-  // 3. Simulating save using initialTitle must succeed and mutate line
-  await plugin.updateNowTask(modal.task.id, modal.task, modal.initialTitle);
-  assert.match(savedContent, /- \[ \] 全新任务名称 📅 2026-09-20 #project\/工作/);
-
-  // 4. If someone wrongfully used the mutated title as expectedTitle, mutateNowTask must reject
-  await assert.rejects(
-    async () => {
-      await plugin.updateNowTask(modal.task.id, modal.task, "全新任务名称");
-    },
-    /行动已被外部移动或修改/,
-  );
 });
 
 test("R5 & R6: findingBasename qualifies generic doc names with parent folder and suggests unique actions", () => {
@@ -974,208 +687,6 @@ test("Static icon variants exist and are selected when reduced motion is request
   assert.equal(launchpad.crispIconVariant("now", false), launchpad.CRISP_NOW_ICON_SVG);
 });
 
-test("T1: task lines carry start / scheduled / due / time and round-trip without loss", () => {
-  const today = new Date("2026-09-20T08:00:00+08:00");
-  const line =
-    "- [ ] 写周报 🛫 2026-09-20 ⏳ 2026-09-21 📅 2026-09-22 ⏰ 09:30 #project/ANKS";
-  const task = launchpad.parseNowTaskLine(line, "Now/行动.md", 1, today);
-  assert.equal(task.start, "2026-09-20");
-  assert.equal(task.scheduled, "2026-09-21");
-  assert.equal(task.due, "2026-09-22");
-  assert.equal(task.time, "09:30");
-  assert.equal(task.doneAt, "");
-  assert.equal(task.title, "写周报");
-  assert.equal(task.bucket, "upcoming");
-
-  const roundTrip = launchpad.parseNowTaskLine(
-    launchpad.taskLine(task),
-    "Now/行动.md",
-    1,
-    today,
-  );
-  assert.equal(roundTrip.start, "2026-09-20");
-  assert.equal(roundTrip.scheduled, "2026-09-21");
-  assert.equal(roundTrip.due, "2026-09-22");
-  assert.equal(roundTrip.time, "09:30");
-  assert.equal(roundTrip.title, "写周报");
-  assert.equal(roundTrip.project, "ANKS");
-  assert.equal(launchpad.taskLine(roundTrip), launchpad.taskLine(task));
-  assert.match(launchpad.taskLine(task), /⏰ 09:30/);
-});
-
-test("T1: invalid dates and times are dropped instead of entering the task model", () => {
-  const today = new Date("2026-09-20T08:00:00+08:00");
-  const bad = launchpad.parseNowTaskLine(
-    "- [ ] 坏日期 📅 2026-02-30 ⏰ 25:99 #project/ANKS",
-    "Now/行动.md",
-    1,
-    today,
-  );
-  assert.equal(bad.due, "");
-  assert.equal(bad.time, "");
-  assert.equal(bad.bucket, "anytime");
-  assert.equal(bad.title, "坏日期");
-
-  assert.equal(launchpad.isDateKey("2026-02-30"), false);
-  assert.equal(launchpad.isDateKey("2024-02-29"), true);
-  assert.equal(launchpad.isDateKey("2026-9-20"), false);
-  assert.equal(launchpad.isTimeKey("23:59"), true);
-  assert.equal(launchpad.isTimeKey("24:00"), false);
-  assert.equal(launchpad.isTimeKey("7:5"), false);
-  assert.equal(launchpad.normalizeTimeKey("7:05"), "07:05");
-  assert.equal(launchpad.normalizeTimeKey("9:30"), "09:30");
-});
-
-test("T1: a start date can move a task out of anytime while due still wins", () => {
-  const today = new Date("2026-09-20T08:00:00+08:00");
-  assert.equal(
-    launchpad.parseNowTaskLine("- [ ] 以后再做 🛫 2026-09-25", "Now/行动.md", 1, today).bucket,
-    "upcoming",
-  );
-  assert.equal(
-    launchpad.parseNowTaskLine("- [ ] 今天开始 🛫 2026-09-20", "Now/行动.md", 1, today).bucket,
-    "today",
-  );
-  assert.equal(
-    launchpad.parseNowTaskLine("- [ ] 冲突 🛫 2026-09-01 📅 2026-09-30", "Now/行动.md", 1, today)
-      .bucket,
-    "upcoming",
-  );
-  assert.equal(
-    launchpad.parseNowTaskLine("- [ ] 没日期", "Now/行动.md", 1, today).bucket,
-    "anytime",
-  );
-});
-
-test("T2: toggleNowTask stamps a completion date and clears it when restored", async () => {
-  const todayKey = launchpad.dateKeyFromTimestamp(new Date());
-  let fileContent = `- [ ] 写周报 📅 ${todayKey} #project/ANKS\n`;
-  const fakeFile = Object.assign(new mockObsidian.TFile(), { path: "Now/行动.md" });
-  const plugin = new launchpad();
-  plugin.app = {
-    vault: {
-      getAbstractFileByPath: () => fakeFile,
-      read: async () => fileContent,
-      modify: async (file, content) => {
-        fileContent = content;
-      },
-    },
-  };
-  plugin.refreshActionSnapshots = async () => {};
-
-  await plugin.toggleNowTask("Now/行动.md:1", "写周报");
-  assert.match(fileContent, new RegExp(`- \\[x\\] 写周报 📅 ${todayKey} ✅ \\d{4}-\\d{2}-\\d{2} #project\\/ANKS`));
-
-  const completed = launchpad.parseNowTaskLine(fileContent.split("\n")[0], "Now/行动.md", 1, new Date());
-  assert.equal(completed.done, true);
-  assert.equal(completed.bucket, "done");
-  assert.equal(launchpad.isDateKey(completed.doneAt), true, "completion stamp must be a real date");
-  assert.equal(completed.title, "写周报");
-
-  await plugin.toggleNowTask("Now/行动.md:1", "写周报");
-  assert.equal(fileContent.includes("✅"), false);
-  assert.match(fileContent, new RegExp(`- \\[ \\] 写周报 📅 ${todayKey} #project\\/ANKS`));
-  const reopened = launchpad.parseNowTaskLine(fileContent.split("\n")[0], "Now/行动.md", 1, new Date());
-  assert.equal(reopened.doneAt, "");
-  assert.equal(reopened.bucket, "today");
-});
-
-test("T2: dragging onto the done bucket completes the task with a completion date", async () => {
-  const calls = [];
-  const fakePlugin = {
-    updateNowTask: async (id, updates, expectedTitle) => {
-      calls.push({ id, updates, expectedTitle });
-    },
-  };
-  const fakeContainer = {
-    children: [],
-    querySelectorAll: () => [],
-    createDiv: (opts) => {
-      const el = { className: opts?.cls || "", remove: () => {} };
-      fakeContainer.children.push(el);
-      return el;
-    },
-  };
-  const renderer = new launchpad.NowBoardRenderer(
-    { plugin: fakePlugin, app: {}, contentEl: fakeContainer },
-    [],
-  );
-  await renderer.moveTaskToBucket("Now/行动.md:1", "done", "写周报");
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].updates.done, true);
-  assert.equal(launchpad.isDateKey(calls[0].updates.doneAt), true);
-  assert.equal(calls[0].expectedTitle, "写周报");
-});
-
-test("T3: reminderMoment only fires for open tasks that carry both a date and a time", () => {
-  const base = { path: "Now/行动.md", title: "到点行动", done: false };
-  assert.equal(launchpad.reminderMoment({ ...base, due: "2026-09-20", time: "" }), null);
-  assert.equal(launchpad.reminderMoment({ ...base, due: "", scheduled: "", start: "", time: "09:30" }), null);
-  assert.equal(launchpad.reminderMoment({ ...base, done: true, due: "2026-09-20", time: "09:30" }), null);
-  assert.equal(launchpad.reminderMoment({ ...base, due: "2026-02-30", time: "09:30" }), null);
-
-  const moment = launchpad.reminderMoment({ ...base, due: "2026-09-20", time: "09:30" });
-  assert.equal(moment.date, "2026-09-20");
-  assert.equal(moment.time, "09:30");
-  assert.equal(moment.at.getHours(), 9);
-  assert.equal(moment.at.getMinutes(), 30);
-  assert.match(moment.key, /到点行动/);
-
-  // Anchor priority: due beats scheduled beats start.
-  assert.equal(
-    launchpad.reminderMoment({
-      ...base,
-      due: "2026-09-22",
-      scheduled: "2026-09-21",
-      start: "2026-09-20",
-      time: "09:30",
-    }).date,
-    "2026-09-22",
-  );
-  assert.equal(
-    launchpad.reminderMoment({ ...base, scheduled: "2026-09-21", start: "2026-09-20", time: "09:30" })
-      .date,
-    "2026-09-21",
-  );
-});
-
-test("T3: checkNowReminders notifies each due action once and skips stale or finished ones", async () => {
-  const pad = (value) => String(value).padStart(2, "0");
-  const keyOf = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  const now = new Date();
-  const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-  const dueDate = keyOf(fiveMinutesAgo);
-  const dueTime = `${pad(fiveMinutesAgo.getHours())}:${pad(fiveMinutesAgo.getMinutes())}`;
-  const staleDate = keyOf(new Date(now.getTime() - 48 * 60 * 60 * 1000));
-
-  const plugin = new launchpad();
-  plugin.settings = { remindersEnabled: true, remindedKeys: [] };
-  plugin.saveSettings = async () => {};
-  plugin.readNowTasks = async () => [
-    { path: "Now/行动.md", title: "到点行动", due: dueDate, time: dueTime, done: false },
-    { path: "Now/行动.md", title: "已完成行动", due: dueDate, time: dueTime, done: true },
-    { path: "Now/行动.md", title: "没有时间", due: dueDate, time: "", done: false },
-    { path: "Now/行动.md", title: "过期太久", due: staleDate, time: "08:00", done: false },
-  ];
-  const notified = [];
-  plugin.notifyNowReminder = async (task, moment) => {
-    notified.push(`${task.title}@${moment.time}`);
-    return true;
-  };
-
-  const first = await plugin.checkNowReminders({ silent: true });
-  assert.equal(first, 1, "only the single actionable timed task should fire");
-  assert.deepEqual(notified, [`到点行动@${dueTime}`]);
-  assert.equal(plugin.settings.remindedKeys.length, 1);
-
-  const second = await plugin.checkNowReminders({ silent: true });
-  assert.equal(second, 0, "the same reminder must not fire twice");
-  assert.equal(notified.length, 1);
-
-  plugin.settings.remindersEnabled = false;
-  assert.equal(await plugin.checkNowReminders({ silent: true }), 0);
-});
-
 test("统一入口: 启动台默认落在「今天」，旧标签 id 自动迁移", () => {
   assert.equal(launchpad.PAGES[0].id, "today");
   assert.equal(launchpad.PAGES[0].name, "今天");
@@ -1206,126 +717,6 @@ test("统一入口: 启动台默认落在「今天」，旧标签 id 自动迁�
     if (hadLocalStorage) globalThis.localStorage = originalStorage;
     else delete globalThis.localStorage;
   }
-});
-
-test("移动端 NOW 在可用时打开到右侧叶片，保留中央视图", async (t) => {
-  const previousMobile = mockObsidian.Platform.isMobile;
-  mockObsidian.Platform.isMobile = true;
-  t.after(() => { mockObsidian.Platform.isMobile = previousMobile; });
-  const calls = [];
-  const rightLeaf = {
-    async setViewState(state) { calls.push(["set-right", state]); },
-  };
-  const centerLeaf = {
-    async setViewState(state) { calls.push(["set-center", state]); },
-  };
-  let revealed = null;
-  const plugin = new launchpad();
-  plugin.app = {
-    workspace: {
-      getLeavesOfType: () => [],
-      getRightLeaf: (split) => {
-        calls.push(["right-leaf", split]);
-        return rightLeaf;
-      },
-      getLeaf: (kind) => {
-        calls.push(["center-leaf", kind]);
-        return centerLeaf;
-      },
-      revealLeaf: (leaf) => { revealed = leaf; },
-    },
-  };
-
-  await plugin.activateNowView();
-
-  assert.equal(revealed, rightLeaf);
-  assert.ok(calls.some(([name, split]) => name === "right-leaf" && split === false));
-  assert.ok(calls.some(([name, state]) => name === "set-right" && state.type === "crisp-now-view"));
-  assert.ok(!calls.some(([name]) => name === "center-leaf" || name === "set-center"));
-});
-
-test("移动端 NOW 已在中间视图时会迁到右侧并释放旧叶片", async (t) => {
-  const previousMobile = mockObsidian.Platform.isMobile;
-  mockObsidian.Platform.isMobile = true;
-  t.after(() => { mockObsidian.Platform.isMobile = previousMobile; });
-  const calls = [];
-  const existing = {
-    getViewState: () => ({ type: "crisp-now-view", state: { filter: "today" } }),
-    detach: () => calls.push("detach-center"),
-  };
-  const rightLeaf = {
-    async setViewState(state) { calls.push(["set-right", state]); },
-  };
-  let revealed = null;
-  const plugin = new launchpad();
-  plugin.app = {
-    workspace: {
-      getLeavesOfType: () => [existing],
-      getRightLeaf: () => rightLeaf,
-      getLeaf: () => { throw new Error("不应再新建中间叶片"); },
-      revealLeaf: (leaf) => { revealed = leaf; },
-    },
-  };
-
-  await plugin.activateNowView();
-
-  assert.equal(revealed, rightLeaf);
-  assert.ok(calls.some(([name, state]) => name === "set-right" && state.state.filter === "today"));
-  assert.ok(calls.includes("detach-center"));
-});
-
-test("移动端 NOW 在 getRightLeaf 不可用时使用 Obsidian 侧栏叶片 API", async (t) => {
-  const previousMobile = mockObsidian.Platform.isMobile;
-  mockObsidian.Platform.isMobile = true;
-  t.after(() => { mockObsidian.Platform.isMobile = previousMobile; });
-  const calls = [];
-  const rightLeaf = {
-    async setViewState(state) { calls.push(["set-right", state]); },
-  };
-  let revealed = null;
-  const plugin = new launchpad();
-  plugin.app = {
-    workspace: {
-      getLeavesOfType: () => [],
-      getRightLeaf: () => null,
-      ensureSideLeaf: async (type, side, options) => {
-        calls.push(["ensure-side", type, side, options]);
-        return rightLeaf;
-      },
-      getLeaf: () => { throw new Error("有侧栏 API 时不应占用中间叶片"); },
-      revealLeaf: (leaf) => { revealed = leaf; },
-    },
-  };
-
-  await plugin.activateNowView();
-
-  assert.equal(revealed, rightLeaf);
-  assert.deepEqual(calls[0], ["ensure-side", "crisp-now-view", "right", { active: true }]);
-  assert.ok(calls.some(([name, state]) => name === "set-right" && state.type === "crisp-now-view"));
-});
-
-test("NOW 在缺少右侧 API 时保留原来的中间视图回退", async () => {
-  const calls = [];
-  const centerLeaf = {
-    async setViewState(state) { calls.push(state); },
-  };
-  let revealed = null;
-  const plugin = new launchpad();
-  plugin.app = {
-    workspace: {
-      getLeavesOfType: () => [],
-      getLeaf: (kind) => {
-        calls.push(["get-center", kind]);
-        return centerLeaf;
-      },
-      revealLeaf: (leaf) => { revealed = leaf; },
-    },
-  };
-
-  await plugin.activateNowView();
-
-  assert.equal(revealed, centerLeaf);
-  assert.deepEqual(calls, [["get-center", "tab"], { type: "crisp-now-view", active: true }]);
 });
 
 test("统一入口: 收藏条目归一化、按类型标注并过滤无效项", () => {
@@ -1424,23 +815,6 @@ test("面板: 待整理按 ANKS 口径过滤 processed 并按更新时间排序"
   assert.equal(launchpad.inboxTriageItems(null).length, 0);
 });
 
-test("打磨: 项目标签写回不再把嵌套标签的斜杠静默改成连字符", () => {
-  const today = new Date("2026-09-20T08:00:00+08:00");
-  const line = "- [ ] 嵌套标签 #project/知识/回写";
-  const task = launchpad.parseNowTaskLine(line, "Now/行动.md", 1, today);
-  assert.equal(task.project, "知识/回写");
-  const written = launchpad.taskLine(task);
-  assert.equal(written, line, "写回必须与读入一致，不能改写用户数据");
-  assert.equal(
-    launchpad.parseNowTaskLine(written, "Now/行动.md", 1, today).project,
-    "知识/回写",
-  );
-  // 会破坏标签 token 的字符仍然被清理
-  assert.equal(launchpad.safeProjectTag("知识 回写"), "知识-回写");
-  assert.equal(launchpad.safeProjectTag("#project/A#B"), "A-B");
-  assert.equal(launchpad.safeProjectTag("  #project/工作  "), "工作");
-});
-
 test("打磨: 待整理口径与 ANKS sweeper 一致（processed / archived / done 都算已归位）", () => {
   for (const settled of ["processed", "archived", "done", " Processed ", "ARCHIVED"]) {
     assert.equal(launchpad.isSettledInboxStatus(settled), true, `${settled} 应算已归位`);
@@ -1457,152 +831,6 @@ test("打磨: 待整理口径与 ANKS sweeper 一致（processed / archived / do
     launchpad.inboxTriageItems(pages).map((page) => page.path),
     ["Topics/x/raw/inbox/c.md"],
   );
-});
-
-test("完整性: 并发勾选不会丢更新（Now 写入已串行化）", async () => {
-  let fileContent = "- [ ] 甲\n- [ ] 乙\n";
-  const mockFile = Object.assign(new mockObsidian.TFile(), { path: "Now/行动.md" });
-  const delay = () => new Promise((resolve) => setTimeout(resolve, 5));
-  const mockPlugin = {
-    app: {
-      vault: {
-        getAbstractFileByPath: () => mockFile,
-        read: async () => {
-          await delay();
-          return fileContent;
-        },
-        modify: async (_file, content) => {
-          await delay();
-          fileContent = content;
-        },
-      },
-    },
-    refreshActionSnapshots: async () => {},
-  };
-  const mutate = launchpad.prototype.mutateNowTask.bind(mockPlugin);
-
-  // 读-改-写之间各有延时：没有队列时后一次写入会用旧快照覆盖前一次。
-  await Promise.all([
-    mutate("Now/行动.md:1", (task) => ({ ...task, done: true }), "甲"),
-    mutate("Now/行动.md:2", (task) => ({ ...task, done: true }), "乙"),
-  ]);
-
-  assert.match(fileContent, /^- \[x\] 甲$/m, "第一条勾选不能被并发写覆盖");
-  assert.match(fileContent, /^- \[x\] 乙$/m, "第二条勾选也不能丢");
-});
-
-test("完整性: 新建行动与其他 Now 写入共用同一串行队列", async () => {
-  let fileContent = "# 行动\n";
-  const mockFile = Object.assign(new mockObsidian.TFile(), { path: "Now/行动.md" });
-  const delay = () => new Promise((resolve) => setTimeout(resolve, 5));
-  const plugin = new launchpad();
-  plugin.ensureActionFile = async () => "Now/行动.md";
-  plugin.app = {
-    vault: {
-      getAbstractFileByPath: () => mockFile,
-      read: async () => {
-        await delay();
-        return fileContent;
-      },
-      modify: async (_file, content) => {
-        await delay();
-        fileContent = content;
-      },
-    },
-  };
-
-  await Promise.all([
-    plugin.createAction({ text: "新增 A" }),
-    plugin.createAction({ text: "新增 B" }),
-  ]);
-  assert.match(fileContent, /新增 A/);
-  assert.match(fileContent, /新增 B/);
-});
-
-test("完整性: 外部编辑穿过读写窗口时拒绝覆盖", async () => {
-  let fileContent = "# 行动\n";
-  const mockFile = Object.assign(new mockObsidian.TFile(), {
-    path: "Now/行动.md",
-    stat: { mtime: 1 },
-  });
-  const plugin = new launchpad();
-  plugin.ensureActionFile = async () => "Now/行动.md";
-  plugin.app = {
-    vault: {
-      getAbstractFileByPath: () => mockFile,
-      read: async () => {
-        mockFile.stat.mtime = 2;
-        return fileContent;
-      },
-      modify: async (_file, content) => {
-        fileContent = content;
-      },
-    },
-  };
-
-  await assert.rejects(
-    () => plugin.createAction({ text: "不应覆盖" }),
-    /外部修改，请刷新看板/,
-  );
-  assert.equal(fileContent, "# 行动\n");
-});
-
-test("完整性: Now 写入优先使用 Vault.process 保护提交阶段", async () => {
-  let fileContent = "# 行动\n";
-  const mockFile = Object.assign(new mockObsidian.TFile(), { path: "Now/行动.md" });
-  const plugin = new launchpad();
-  plugin.ensureActionFile = async () => "Now/行动.md";
-  plugin.app = {
-    vault: {
-      getAbstractFileByPath: () => mockFile,
-      process: async (_file, transform) => {
-        fileContent += "- [ ] 外部编辑\n";
-        fileContent = transform(fileContent);
-        return fileContent;
-      },
-    },
-  };
-
-  await plugin.createAction({ text: "插件行动" });
-
-  assert.match(fileContent, /外部编辑/);
-  assert.match(fileContent, /插件行动/);
-});
-
-test("完整性: 标题里的内联 #token 不会被当成标签搬走", () => {
-  const today = new Date("2026-09-20T08:00:00+08:00");
-  for (const line of [
-    "- [ ] 修复 #123 的 bug",
-    "- [ ] 修复 #123 的 bug #project/X",
-    "- [ ] C# 迁移 📅 2026-09-21",
-    "- [ ] 等回复 #waiting #project/X",
-  ]) {
-    const task = launchpad.parseNowTaskLine(line, "Now/行动.md", 1, today);
-    assert.equal(launchpad.taskLine(task), line, `${line} 必须无损往返`);
-  }
-  // 托管标签（等待态）仍然由插件管理
-  const cleared = launchpad.parseNowTaskLine("- [ ] 等回复 #waiting", "Now/行动.md", 1, today);
-  assert.equal(launchpad.taskLine({ ...cleared, waiting: false }), "- [ ] 等回复");
-});
-
-test("完整性: 写回保留原文件换行风格，CRLF 不被改写成 LF", async () => {
-  let fileContent = "- [ ] 甲\r\n- [ ] 乙\r\n";
-  const mockFile = Object.assign(new mockObsidian.TFile(), { path: "Now/行动.md" });
-  const mockPlugin = {
-    app: {
-      vault: {
-        getAbstractFileByPath: () => mockFile,
-        read: async () => fileContent,
-        modify: async (_file, content) => {
-          fileContent = content;
-        },
-      },
-    },
-    refreshActionSnapshots: async () => {},
-  };
-  const mutate = launchpad.prototype.mutateNowTask.bind(mockPlugin);
-  await mutate("Now/行动.md:1", (task) => ({ ...task, done: true }), "甲");
-  assert.equal(fileContent, "- [x] 甲\r\n- [ ] 乙\r\n");
 });
 
 test("节奏: 点某天能列出当天改动的文件（热力图的时间维度索引）", () => {
@@ -1794,83 +1022,6 @@ test("N1: 手动系统快照失败要持续记录快照与健康错误", async (
   assert.ok(plugin.autoSyncStatus.snapshot.lastAttemptAt > 0);
   assert.ok(plugin.autoSyncStatus.health.lastAttemptAt > 0);
   assert.match(plugin.autoSyncLastError, /manual collector failed/);
-});
-
-test("N2: 移入随时会清除日期安排并保留行动身份", async () => {
-  const line = "- [ ] 排期任务 ➕ 2026-09-20 🛫 2099-01-01 ⏳ 2099-01-02 📅 2099-01-03 ⏰ 09:30 #project/ANKS";
-  let fileContent = `${line}\n`;
-  const file = Object.assign(new mockObsidian.TFile(), { path: "Now/行动.md" });
-  const plugin = new launchpad();
-  plugin.app = {
-    vault: {
-      getAbstractFileByPath: () => file,
-      read: async () => fileContent,
-      modify: async (_file, content) => { fileContent = content; },
-    },
-  };
-  plugin.refreshActionSnapshots = async () => true;
-  const task = launchpad.parseNowTaskLine(line, "Now/行动.md", 1, new Date("2026-09-23T08:00:00"));
-  assert.equal(task.bucket, "upcoming");
-  const renderer = Object.create(launchpad.NowBoardRenderer.prototype);
-  renderer.plugin = plugin;
-
-  await renderer.moveTaskToBucket(task.id, "anytime", task);
-
-  const moved = launchpad.parseNowTaskLine(fileContent.trim(), "Now/行动.md", 1, new Date("2026-09-23T08:00:00"));
-  assert.equal(moved.bucket, "anytime");
-  assert.equal(moved.due, "");
-  assert.equal(moved.scheduled, "");
-  assert.equal(moved.start, "");
-  assert.equal(moved.time, "");
-  assert.equal(moved.created, "2026-09-20");
-  assert.equal(moved.project, "ANKS");
-});
-
-test("N3: 快照失败时已提交的行动仍报告为已保存", async () => {
-  let fileContent = "- [ ] 重要行动\n";
-  const file = Object.assign(new mockObsidian.TFile(), { path: "Now/行动.md" });
-  const plugin = new launchpad();
-  plugin.settings = { allowSnapshotRefresh: true };
-  plugin.canRunAnks = () => true;
-  plugin.app = {
-    vault: {
-      getAbstractFileByPath: () => file,
-      process: async (_file, transform) => {
-        fileContent = transform(fileContent);
-        return fileContent;
-      },
-    },
-    workspace: { getLeavesOfType: () => [] },
-  };
-  plugin.runAnks = async () => {
-    throw new Error("snapshot unavailable");
-  };
-  const task = launchpad.parseNowTaskLine("- [ ] 重要行动", "Now/行动.md", 1);
-
-  const result = await plugin.toggleNowTask(task.id, task);
-
-  assert.match(fileContent.trimEnd(), /^- \[x\] 重要行动 ✅ \d{4}-\d{2}-\d{2}$/);
-  assert.deepEqual(result, { saved: true, snapshotUpdated: false, error: "snapshot unavailable" });
-  assert.equal(plugin.autoSyncStatus.actions.error, "snapshot unavailable");
-});
-
-test("N4: 静默窗口内的其他 Now 文件事件仍会进入待刷新队列", () => {
-  const plugin = Object.assign(Object.create(launchpad.prototype), {
-    settings: { autoRouteEnabled: true },
-    canRunAnks: () => true,
-    autoSyncRunning: false,
-    autoSyncDirty: { actions: false, knowledge: false, snapshot: false },
-    autoSyncIgnoreUntil: 0,
-    ignoreNowChangeUntil: Date.now() + 5000,
-    runEventBridgeSync: () => {},
-  });
-
-  plugin.handleAutoRouteCandidate({ path: "Now/外部编辑.md" });
-
-  assert.equal(plugin.autoSyncDirty.actions, true);
-  assert.ok(plugin.autoSyncTimer, "变更事件必须排入合并刷新");
-  clearTimeout(plugin.autoSyncTimer);
-  clearTimeout(plugin.refreshTimer);
 });
 
 test("复盘建议：近期已完成的同名行动也参与去重，队列向后推进", () => {
@@ -2115,46 +1266,4 @@ test("事件桥：routing-rules.toml 变化只重载忽略前缀，不排队 CLI
   assert.equal(reloads, 1);
   assert.deepEqual(plugin.autoSyncDirty, { actions: false, knowledge: false, snapshot: false });
   assert.equal(plugin.autoSyncTimer, undefined);
-});
-
-test("阻塞行动：health 已无该 blocking 时判定为已解除，无效报告不判定", () => {
-  const tasks = [
-    { id: "n:1", title: "处理系统阻塞：DOCS_SYNC_OUTDATED", done: false },
-    { id: "n:2", title: "处理系统阻塞：CONTRACT_ERROR", done: false },
-    { id: "n:3", title: "处理系统阻塞：OLD", done: true },
-    { id: "n:4", title: "手动写的 处理系统阻塞：X", done: false },
-  ];
-  const health = {
-    data: { findings: [{ code: "CONTRACT_ERROR", severity: "blocking" }, { code: "X", severity: "operational" }] },
-  };
-  assert.deepEqual(
-    launchpad.resolvedBlockingActions(tasks, health).map((task) => task.id),
-    ["n:1"],
-  );
-  assert.deepEqual(launchpad.resolvedBlockingActions(tasks, null), []);
-  assert.deepEqual(launchpad.resolvedBlockingActions(tasks, { data: { status: "error" } }), []);
-});
-
-test("阻塞行动：health 重建成功后按标题锚点关闭已解除的行动", async () => {
-  const updates = [];
-  const plugin = Object.assign(Object.create(launchpad.prototype), {
-    app: {
-      vault: {
-        adapter: {
-          read: async () => JSON.stringify({ data: { findings: [] } }),
-        },
-      },
-    },
-    readNowTasks: async () => [
-      { id: "Now/行动.md:5", title: "处理系统阻塞：DOCS_SYNC_OUTDATED", done: false },
-      { id: "Now/行动.md:6", title: "写周报", done: false },
-    ],
-    updateNowTask: async (id, patch, expectedTitle) => {
-      updates.push([id, patch, expectedTitle]);
-    },
-  });
-  assert.equal(await plugin.closeResolvedBlockingActions(), 1);
-  assert.deepEqual(updates, [
-    ["Now/行动.md:5", { done: true }, "处理系统阻塞：DOCS_SYNC_OUTDATED"],
-  ]);
 });

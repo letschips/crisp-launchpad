@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 — 2026-11-03
+
+- 删除 `Now/` 行动层：Now 看板、行动编辑弹窗、行动提醒、`obsidian://crisp-now`、「打开 Crisp Now 行动看板」命令和功能区图标都已移除。行动只认 Crisp Tempo；没有 Tempo 时行动台提示启用并激活。
+- 速记弹窗只保留速记，新建行动改用 Tempo 的快速新建。
+- Tempo 任务变化时，事件桥顺带重建行动快照。
+
 ## 0.3.0 — 2026-11-03
 
 - 装了并激活 Crisp Tempo 时，行动以 Tempo 为准：行动台、侧栏面板、复盘都读 Tempo，新建行动写进 Tempo，点行动在 Tempo 里打开；没有 Tempo 时照旧用 `Now/`。

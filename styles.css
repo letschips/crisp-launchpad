@@ -17,7 +17,6 @@
    same values instead of drifting apart.
    -------------------------------------------------------------------------- */
 .crisp-launchpad-view,
-.crisp-now-view,
 .crisp-launchpad-panel-view {
   --crisp-accent: var(--interactive-accent, #6b84bf);
   --crisp-surface: var(--background-primary);
@@ -1496,11 +1495,11 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
 }
 
 /* Native modals live outside the ItemView, so their shell is intentionally unscoped. */
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) {
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-content-project-modal) {
   --lp-modal-accent: var(--interactive-accent, #6b84bf);
 }
 
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) h2 {
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-content-project-modal) h2 {
   margin-top: 0;
 }
 
@@ -1520,7 +1519,7 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   margin-top: 18px;
 }
 
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) button.launchpad-btn {
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-content-project-modal) button.launchpad-btn {
   min-height: 32px;
   height: auto;
   padding: 6px 13px;
@@ -1533,304 +1532,16 @@ body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
   cursor: pointer;
 }
 
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) button.launchpad-btn.is-accent {
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-content-project-modal) button.launchpad-btn.is-accent {
   color: var(--lp-modal-accent);
   border-color: color-mix(in srgb, var(--lp-modal-accent) 38%, transparent);
   background: color-mix(in srgb, var(--lp-modal-accent) 12%, var(--background-primary));
 }
 
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) button.launchpad-btn.is-primary {
+:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-content-project-modal) button.launchpad-btn.is-primary {
   color: var(--text-on-accent, #fff);
   border-color: var(--lp-modal-accent);
   background: var(--lp-modal-accent);
-}
-
-/* --- Quick capture & edit modal: quick dates, date input & tag chips --- */
-.launchpad-quick-dates {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  margin-right: 6px;
-}
-
-:is(.crisp-launchpad-quick-modal, .crisp-launchpad-convert-modal, .crisp-launchpad-onboarding-modal, .crisp-now-edit-modal, .crisp-content-project-modal) button.launchpad-btn.launchpad-btn-sm {
-  min-height: 27px;
-  height: 27px;
-  padding: 2px 8px;
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-.launchpad-date-input {
-  cursor: pointer;
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  min-height: 34px;
-  padding: 6px 10px;
-  border: 1px solid var(--crisp-border, var(--background-modifier-border));
-  border-radius: var(--crisp-radius, 8px);
-  background: var(--crisp-surface-soft, var(--background-secondary));
-  color: var(--text-normal);
-  accent-color: var(--lp-modal-accent, var(--interactive-accent));
-  font-variant-numeric: tabular-nums;
-  box-shadow: none;
-  transition:
-    border-color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease),
-    box-shadow var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease);
-}
-
-.launchpad-date-control {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  flex-wrap: wrap;
-  gap: 6px;
-  width: 100%;
-  min-width: 0;
-}
-
-.launchpad-date-control > :not(.launchpad-quick-dates):not(.launchpad-date-picker-trigger) {
-  flex: 1 1 150px;
-  min-width: 0;
-}
-
-.launchpad-date-control .launchpad-quick-dates {
-  flex: 0 0 auto;
-  margin-right: 0;
-}
-
-.launchpad-date-control .launchpad-date-input:hover {
-  border-color: color-mix(
-    in srgb,
-    var(--lp-modal-accent, var(--interactive-accent)) 42%,
-    var(--crisp-border, var(--background-modifier-border))
-  );
-}
-
-.launchpad-date-control .launchpad-date-input:focus {
-  border-color: var(--lp-modal-accent, var(--interactive-accent));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 22%, transparent);
-  outline: none;
-}
-
-button.launchpad-date-picker-trigger {
-  display: inline-flex;
-  flex: 0 0 34px;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  min-width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 1px solid var(--crisp-border, var(--background-modifier-border));
-  border-radius: var(--crisp-radius, 8px);
-  background: var(--crisp-surface-soft, var(--background-secondary));
-  color: var(--text-muted);
-  box-shadow: none;
-  cursor: pointer;
-  transition:
-    color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease),
-    border-color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease),
-    background-color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease);
-}
-
-button.launchpad-date-picker-trigger:hover,
-button.launchpad-date-picker-trigger:focus-visible {
-  border-color: var(--lp-modal-accent, var(--interactive-accent));
-  background: color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 10%, var(--background-primary));
-  color: var(--lp-modal-accent, var(--interactive-accent));
-}
-
-.launchpad-date-picker-popover {
-  position: fixed;
-  z-index: 10000;
-  box-sizing: border-box;
-  width: min(304px, calc(100vw - 16px));
-  padding: 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  box-shadow: var(--shadow-l, 0 12px 32px rgba(0, 0, 0, 0.28));
-  font-family: var(--font-interface);
-}
-
-.launchpad-date-picker-header {
-  display: grid;
-  grid-template-columns: 34px 1fr 34px;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.launchpad-date-picker-month {
-  color: var(--text-normal);
-  font-size: 14px;
-  font-weight: 650;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-button.launchpad-date-picker-nav {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  min-height: 34px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-  box-shadow: none;
-}
-
-button.launchpad-date-picker-nav:hover {
-  border-color: var(--background-modifier-border);
-  background: var(--background-modifier-hover);
-  color: var(--lp-modal-accent, var(--interactive-accent));
-}
-
-.launchpad-date-picker-weekdays,
-.launchpad-date-picker-days {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.launchpad-date-picker-weekdays {
-  margin-bottom: 4px;
-}
-
-.launchpad-date-picker-weekday {
-  display: grid;
-  min-height: 26px;
-  place-items: center;
-  color: var(--text-faint);
-  font-size: 11px;
-  font-weight: 550;
-}
-
-button.launchpad-date-picker-day {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 32px;
-  min-height: 32px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-normal);
-  box-shadow: none;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  transition:
-    color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease),
-    background-color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease),
-    border-color var(--crisp-dur-fast, 120ms) var(--crisp-ease, ease);
-}
-
-button.launchpad-date-picker-day:hover,
-button.launchpad-date-picker-day:focus-visible {
-  border-color: color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 36%, transparent);
-  background: color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 12%, var(--background-primary));
-  color: var(--lp-modal-accent, var(--interactive-accent));
-  outline: none;
-}
-
-button.launchpad-date-picker-day.is-outside-month {
-  color: var(--text-faint);
-  opacity: 0.62;
-}
-
-button.launchpad-date-picker-day.is-today:not(.is-selected) {
-  border-color: color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 55%, transparent);
-  color: var(--lp-modal-accent, var(--interactive-accent));
-  font-weight: 650;
-}
-
-button.launchpad-date-picker-day.is-selected,
-button.launchpad-date-picker-day.is-selected:hover {
-  border-color: var(--lp-modal-accent, var(--interactive-accent));
-  background: var(--lp-modal-accent, var(--interactive-accent));
-  color: var(--text-on-accent, #fff);
-  opacity: 1;
-  font-weight: 650;
-}
-
-.launchpad-date-picker-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--background-modifier-border);
-}
-
-.launchpad-date-picker-footer button.launchpad-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 32px;
-  padding: 5px 11px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  box-shadow: none;
-  font-size: 12px;
-  font-weight: 550;
-}
-
-.launchpad-date-picker-footer button.launchpad-btn:hover {
-  border-color: color-mix(in srgb, var(--lp-modal-accent, var(--interactive-accent)) 45%, var(--background-modifier-border));
-}
-
-.launchpad-date-picker-footer button.launchpad-btn.is-primary {
-  border-color: var(--lp-modal-accent, var(--interactive-accent));
-  background: var(--lp-modal-accent, var(--interactive-accent));
-  color: var(--text-on-accent, #fff);
-}
-
-body.is-mobile .launchpad-date-control .launchpad-quick-dates {
-  flex-basis: 100%;
-}
-
-.launchpad-tag-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: -6px;
-  margin-bottom: 14px;
-  padding-left: 2px;
-}
-
-button.launchpad-tag-chip {
-  padding: 3px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: 11px;
-  cursor: pointer;
-  transition: all var(--crisp-dur-fast) var(--crisp-ease);
-}
-
-button.launchpad-tag-chip:hover {
-  color: var(--text-normal);
-  background: var(--background-modifier-hover);
-  border-color: var(--pulse-ui-border-hover, var(--text-muted));
-}
-
-button.launchpad-tag-chip.is-active {
-  color: var(--pulse-ui-accent);
-  border-color: var(--pulse-ui-accent);
-  background: color-mix(in srgb, var(--pulse-ui-accent) 12%, transparent);
-  font-weight: 600;
 }
 
 .launchpad-modal-preview {
@@ -1892,18 +1603,6 @@ button.launchpad-tag-chip.is-active {
   line-height: 1.45;
 }
 
-/* Crisp Now action board */
-.crisp-now-view {
-  background: var(--crisp-surface-soft);
-  padding: 20px 28px 56px;
-  overflow: auto;
-}
-
-.crisp-now-view .view-content {
-  padding: 0 !important;
-}
-
-.crisp-now-view button.launchpad-btn,
 .crisp-launchpad-panel-view button.launchpad-btn {
   min-height: 32px;
   height: auto;
@@ -1917,369 +1616,20 @@ button.launchpad-tag-chip.is-active {
   cursor: pointer;
 }
 
-.crisp-now-view button.launchpad-btn:hover,
 .crisp-launchpad-panel-view button.launchpad-btn:hover {
   background: var(--background-modifier-hover);
 }
 
-.crisp-now-view button.launchpad-btn.is-primary,
 .crisp-launchpad-panel-view button.launchpad-btn.is-primary {
   color: var(--text-on-accent, #fff);
   border-color: var(--crisp-accent);
   background: var(--crisp-accent);
 }
 
-.now-board {
-  max-width: 1180px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.now-board-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 20px 22px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  background: var(--background-primary);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
-}
-
-.now-board-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.now-board-icon {
-  width: 38px;
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  color: var(--now-accent);
-  border: 1px solid color-mix(in srgb, var(--now-accent) 35%, var(--background-modifier-border));
-  background: color-mix(in srgb, var(--now-accent) 12%, var(--background-primary));
-}
-
-.now-board-icon svg {
-  width: 22px;
-  height: 22px;
-}
-
-.now-board-heading {
-  color: var(--text-normal);
-  font-size: 20px;
-  font-weight: 650;
-}
-
-.now-board-subtitle {
-  margin-top: 2px;
-  color: var(--text-faint);
-  font-size: 11px;
-}
-
-.now-board-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.now-board-stats {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--crisp-space-sm);
-}
-
-.now-board-stat {
-  padding: var(--crisp-space) calc(var(--crisp-space) + 2px);
-  border: 1px solid var(--crisp-border);
-  border-radius: var(--crisp-radius);
-  background: var(--crisp-surface);
-}
-
-.now-board-stat-value {
-  color: var(--text-normal);
-  font-size: 22px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.now-board-stat-label {
-  margin-top: 2px;
-  color: var(--text-faint);
-  font-size: 10px;
-}
-
-.now-board-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(180px, 1fr));
-  align-items: start;
-  gap: var(--crisp-space);
-  overflow-x: auto;
-  padding-bottom: 4px;
-}
-
-.now-board-column {
-  min-width: 180px;
-  min-height: 180px;
-  padding: var(--crisp-space);
-  border: 1px solid var(--crisp-border);
-  border-radius: var(--crisp-radius-lg);
-  background: color-mix(in srgb, var(--crisp-surface) 82%, transparent);
-  transition: border-color var(--crisp-dur) var(--crisp-ease),
-    background-color var(--crisp-dur) var(--crisp-ease);
-}
-
-.now-board-column.is-overdue.has-tasks {
-  border-color: color-mix(in srgb, var(--text-error) 45%, var(--background-modifier-border));
-}
-
-.now-board-column.is-today.has-tasks {
-  border-color: color-mix(in srgb, var(--now-accent) 45%, var(--background-modifier-border));
-}
-
-.now-board-column.is-dragover {
-  border-color: var(--now-accent) !important;
-  background: color-mix(in srgb, var(--now-accent) 10%, var(--background-primary)) !important;
-  box-shadow: inset 0 0 0 1px var(--now-accent);
-}
-
-.now-board-column-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  color: var(--text-normal);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.now-board-column-header.is-collapsible {
-  border-radius: 6px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.now-board-column-header.is-collapsible:hover {
-  color: var(--now-accent);
-}
-
-.now-board-column-header.is-collapsible:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--now-accent) 65%, transparent);
-  outline-offset: 3px;
-}
-
-.now-board-column-header-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.now-board-column-toggle-icon {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-faint);
-}
-
-.now-board-column-toggle-icon svg {
-  width: 14px;
-  height: 14px;
-}
-
-.now-board-count {
-  min-width: 22px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: var(--background-secondary);
-  color: var(--text-faint);
-  text-align: center;
-}
-
-.now-board-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--crisp-space-sm);
-}
-
-.now-board-column.is-done.has-tasks {
-  border-color: color-mix(in srgb, var(--text-faint) 40%, var(--background-modifier-border));
-}
-
-.now-board-column.is-done.is-collapsed {
-  align-self: start;
-  min-height: 0;
-}
-
-.now-board-column.is-done.is-expanded {
-  max-height: min(68vh, 640px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-}
-
-.now-board-column.is-done.is-expanded .now-board-column-header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding-block: 4px;
-  background: var(--crisp-surface);
-}
-
-.now-board-done-summary {
-  padding: 2px 0 4px;
-  color: var(--text-faint);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.now-board-column.is-done .now-task-card {
-  cursor: pointer;
-}
-
-.now-board-column.is-done .now-task-title {
-  color: var(--text-muted);
-}
-
-.now-task-done-at {
-  color: var(--text-faint);
-}
-
-.now-task-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: var(--crisp-space-sm);
-  border: 1px solid var(--crisp-border);
-  border-radius: var(--crisp-radius);
-  background: var(--crisp-surface);
-  cursor: grab;
-  transition: border-color var(--crisp-dur-fast) var(--crisp-ease),
-    opacity var(--crisp-dur-fast) var(--crisp-ease);
-}
-
-.now-task-card:active {
-  cursor: grabbing;
-}
-
-.now-task-card.is-dragging {
-  opacity: 0.35;
-  border-style: dashed;
-}
-
-.now-task-card:hover {
-  border-color: color-mix(in srgb, var(--now-accent) 35%, var(--background-modifier-border));
-}
-
-.now-task-checkbox {
-  width: 20px !important;
-  height: 20px !important;
-  min-width: 20px !important;
-  padding: 0 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  border-radius: 6px !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  background: var(--background-primary) !important;
-  color: transparent !important;
-  cursor: pointer !important;
-}
-
-.now-task-checkbox svg {
-  width: 13px;
-  height: 13px;
-  stroke-width: 2.5;
-}
-
-.now-task-checkbox.is-done {
-  color: var(--text-on-accent, #fff) !important;
-  border-color: var(--now-accent) !important;
-  background: var(--now-accent) !important;
-}
-
-.now-task-body {
-  min-width: 0;
-  flex: 1;
-}
-
-.now-task-title {
-  color: var(--text-normal);
-  font-size: 12px;
-  line-height: 1.45;
-  word-break: break-word;
-}
-
-.now-task-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-  color: var(--text-faint);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
-.now-board-empty {
-  padding: 20px 4px;
-  color: var(--text-faint);
-  font-size: 11px;
-  text-align: center;
-}
-
 .launchpad-badge.is-warning {
   color: var(--text-warning, #d97706);
   border-color: color-mix(in srgb, var(--text-warning, #d97706) 32%, transparent);
   background: color-mix(in srgb, var(--text-warning, #d97706) 12%, transparent);
-}
-
-.crisp-now-presets {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-
-.crisp-now-preset-btn {
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 500;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.crisp-now-preset-btn:hover {
-  border-color: var(--now-accent);
-  color: var(--text-normal);
-  background: color-mix(in srgb, var(--now-accent) 10%, var(--background-primary));
-}
-
-.crisp-now-preset-btn.is-active {
-  border-color: var(--now-accent);
-  background: var(--now-accent);
-  color: var(--text-on-accent, #fff);
-}
-
-@media (max-width: 900px) {
-  .crisp-now-view {
-    padding: 14px 16px 40px;
-  }
-
-  .now-board-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 body.is-mobile .crisp-launchpad-view {
@@ -2300,58 +1650,12 @@ body.is-mobile .crisp-launchpad-view .launchpad-card-title {
   white-space: normal;
 }
 
-body.is-mobile .crisp-launchpad-view .launchpad-actions,
-body.is-mobile .crisp-now-view .now-board-actions {
+body.is-mobile .crisp-launchpad-view .launchpad-actions {
   width: 100%;
 }
 
-body.is-mobile .crisp-launchpad-view button.launchpad-btn,
-body.is-mobile .crisp-now-view button.launchpad-btn {
+body.is-mobile .crisp-launchpad-view button.launchpad-btn {
   flex: 0 1 auto;
-}
-
-body.is-mobile .crisp-now-view {
-  padding: 12px 12px 42px;
-}
-
-body.is-mobile .crisp-now-view .now-board-header {
-  padding: 16px;
-}
-
-body.is-mobile .crisp-now-view .now-board-grid {
-  grid-template-columns: 1fr;
-  min-width: 0;
-  overflow-x: visible;
-}
-
-body.is-mobile .crisp-now-view .now-board-column {
-  min-width: 0;
-  min-height: 0;
-}
-
-body.is-mobile .crisp-now-view .now-board-stats {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-body.is-mobile :is(
-  .crisp-launchpad-quick-modal,
-  .crisp-launchpad-convert-modal,
-  .crisp-launchpad-onboarding-modal,
-  .crisp-now-edit-modal,
-  .crisp-content-project-modal
-) .launchpad-modal-actions {
-  align-items: stretch;
-}
-
-body.is-mobile :is(
-  .crisp-launchpad-quick-modal,
-  .crisp-launchpad-convert-modal,
-  .crisp-launchpad-onboarding-modal,
-  .crisp-now-edit-modal,
-  .crisp-content-project-modal
-) .launchpad-modal-actions button {
-  flex: 1 1 auto;
-  justify-content: center;
 }
 
 body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting {

@@ -80,7 +80,6 @@ test("探测：只按结构判断，不认识平台名与 Topic 名", () => {
   assert.equal(topic.hasInbox, true);
   assert.equal(topic.basePath, "Topics/studio/内容总览.base", "Base 按后缀探测，不写死文件名");
   assert.equal(topic.dashboardPath, "Topics/studio/内容大盘.md");
-  assert.equal(caps.hasActionLayer, true);
   assert.equal(caps.hasIndex, true);
 });
 
@@ -89,7 +88,6 @@ test("探测：陌生库不臆造结构", () => {
   assert.deepEqual(caps.topics, []);
   assert.deepEqual(caps.contentTopics, []);
   assert.deepEqual(caps.knowledgeTopics, []);
-  assert.equal(caps.hasActionLayer, false);
   assert.equal(caps.hasCli, false, "未显式告知时不得假定 CLI 存在");
   assert.equal(caps.hasSnapshots, false);
 });
@@ -101,7 +99,7 @@ test("自动判定优先级：内容 → 知识 → 仅行动", () => {
   assert.equal(auto(CONTENT_NO_PIPELINE), "content-ops", "只有 content-projects 也算内容运营");
   assert.equal(auto(KNOWLEDGE_ONLY), "knowledge", "有 knowledge/ 但无内容项目");
   assert.equal(auto(VANILLA), "actions-only", "什么都没有");
-  /* 只有 Now/ 行动层时仍是「仅行动」，而不是 knowledge */
+  /* 残留的 Now/ 目录不再算任何结构，仍是「仅行动」 */
   assert.equal(auto(VANILLA.concat("Now/行动.md")), "actions-only");
 });
 
