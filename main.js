@@ -1210,6 +1210,7 @@ function suggestReviewActions({
   health = null,
   contentProjects = [],
   max = 5,
+  perGroupLimit = 2,
   today = new Date(),
 } = {}) {
   const healthData = health?.data || health || {};
@@ -1220,19 +1221,24 @@ function suggestReviewActions({
   const cooldownStart = dateKey(
     new Date(today.getTime() - REVIEW_DONE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000),
   );
+  const relevantTasks = tasks.filter((task) => !task.done || (isDateKey(task.doneAt) && task.doneAt >= cooldownStart));
   const existing = new Set(
-    tasks
-      .filter((task) => !task.done || (isDateKey(task.doneAt) && task.doneAt >= cooldownStart))
+    relevantTasks
+      .filter(task => !task.reviewIdentity)
       .map((task) => normalizeActionKey(task.title))
       .filter(Boolean),
   );
+  const identities = new Set(relevantTasks.map(task => task.reviewIdentity).filter(Boolean));
+  const candidateKeys = new Set();
   const candidates = [];
-  const push = (text, project = "复盘") => {
+  const push = (text, project = "复盘", link = "") => {
     const clean = String(text ?? "").trim();
     const key = normalizeActionKey(clean);
-    if (!clean || !key || existing.has(key)) return false;
-    existing.add(key);
-    candidates.push({ text: clean, project });
+    const identity = link ? `${project}:${link}` : "";
+    const candidateKey = identity || key;
+    if (!clean || !key || existing.has(key) || identities.has(identity) || candidateKeys.has(candidateKey)) return false;
+    candidateKeys.add(candidateKey);
+    candidates.push({ text: clean, project, ...(link ? { link, identity: `${project}:${link}` } : {}) });
     return true;
   };
 
@@ -1240,7 +1246,7 @@ function suggestReviewActions({
     (finding) => finding.severity === "blocking" || finding.severity === "error",
   );
   if (blocking.length) {
-    push(`${BLOCKING_ACTION_PREFIX}${blocking[0].code || "blocking"}`, "ANKS");
+    push(`${BLOCKING_ACTION_PREFIX}${blocking[0].code || "blocking"}`, "ANKS", textOr(blocking[0].path || blocking[0].evidence?.path));
   }
 
   const overdue = tasks.filter((task) => !task.done && task.bucket === "overdue");
@@ -1249,16 +1255,16 @@ function suggestReviewActions({
   const writebacks = findings.filter((finding) => finding.code === "PENDING_WRITEBACK");
   let writebackCount = 0;
   for (const finding of writebacks) {
-    if (push(`回写待提炼：${findingBasename(finding)}`, "知识回写")) {
-      if (++writebackCount >= 2) break;
+    if (push(`回写待提炼：${findingBasename(finding)}`, "知识回写", textOr(finding.path || finding.evidence?.path))) {
+      if (++writebackCount >= perGroupLimit) break;
     }
   }
 
   const staleInbox = findings.filter((finding) => finding.code === "STALE_INBOX");
   let staleCount = 0;
   for (const finding of staleInbox) {
-    if (push(`整理积压收件箱：${findingBasename(finding)}`, "收件箱")) {
-      if (++staleCount >= 2) break;
+    if (push(`整理积压收件箱：${findingBasename(finding)}`, "收件箱", textOr(finding.path || finding.evidence?.path))) {
+      if (++staleCount >= perGroupLimit) break;
     }
   }
 
@@ -1267,8 +1273,8 @@ function suggestReviewActions({
   );
   let reviewingCount = 0;
   for (const project of reviewingProjects) {
-    if (push(`复盘内容项目：${contentProjectLabel(pages, project)}`, "内容复盘")) {
-      if (++reviewingCount >= 2) break;
+    if (push(`复盘内容项目：${contentProjectLabel(pages, project)}`, "内容复盘", `${textOr(project.dir)}/project.md`)) {
+      if (++reviewingCount >= perGroupLimit) break;
     }
   }
 
@@ -1334,6 +1340,7 @@ function makeClickable(element, handler, label = "") {
   if (label) element.setAttribute("aria-label", label);
   element.addEventListener("click", handler);
   element.addEventListener("keydown", (event) => {
+    if (event.target !== element || event.isComposing) return;
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       handler(event);
@@ -1423,12 +1430,7 @@ class LaunchpadRenderer {
     this.root.empty();
     this.renderHero();
     this.renderTabs();
-    /* 只渲染当前形态存在的页：面板对象本身按 tabs 创建，缺页时不可访问。 */
-    if (this.hasTab("today")) this.renderToday();
-    if (this.profile.features.create && this.hasTab("create")) this.renderCreate();
-    if (this.hasTab("knowledge")) this.renderKnowledge();
-    if (this.profile.features.review && this.hasTab("review")) this.renderReview();
-    if (this.hasTab("system")) this.renderSystem();
+    this.renderedTabs = new Set();
     this.showTab(this.activeTab);
   }
 
@@ -1595,6 +1597,11 @@ class LaunchpadRenderer {
 
   showTab(tab) {
     if (!this.hasTab(tab)) return;
+    if (!this.renderedTabs.has(tab)) {
+      const renderers = { today: "renderToday", create: "renderCreate", knowledge: "renderKnowledge", review: "renderReview", system: "renderSystem" };
+      this[renderers[tab]]();
+      this.renderedTabs.add(tab);
+    }
     this.activeTab = tab;
     this.saveActiveTab(tab);
     for (const page of this.tabs) {
@@ -1776,7 +1783,14 @@ class LaunchpadRenderer {
           todayTitle.createSpan({ text: `今天 (${todayTasks.length})` });
         }
         const todayList = todayColumn.createDiv({ cls: "launchpad-action-list" });
-        this.renderActionItems(todayList, [...overdueTasks, ...todayTasks], 8);
+        const focusTasks = [...overdueTasks, ...todayTasks];
+        if (!focusTasks.length) {
+          const next = [...getBucketTasks("anytime"), ...getBucketTasks("inbox")];
+          if (next.length) todayTitle.setText(`接下来 (${next.length})`);
+          this.renderActionItems(todayList, next, 5);
+        } else {
+          this.renderActionItems(todayList, focusTasks, 8);
+        }
 
         const laterColumn = grid.createDiv({ cls: "launchpad-action-column" });
         const laterTitle = laterColumn.createDiv({ cls: "launchpad-action-column-title" });
@@ -1866,7 +1880,8 @@ class LaunchpadRenderer {
     const keys = (this.profile.kpis || Object.keys(KPI_DEFINITIONS)).filter((key) => KPI_DEFINITIONS[key]);
     const kpis = keys.map((key) => {
       const definition = KPI_DEFINITIONS[key];
-      return [values[key], definition.label, definition.hint, resolveKpiTarget(definition.path, this.capabilities)];
+      const scope = key === "active" ? "全部 Topic" : (key === "projects" ? primaryContentTopic(this.capabilities) : topic);
+      return [values[key], definition.label, scope, resolveKpiTarget(definition.path, this.capabilities)];
     }).filter(([, , , target]) => target);
     if (!kpis.length) return;
     const grid = parent.createDiv({ cls: "launchpad-kpi-row" });
@@ -1896,7 +1911,7 @@ class LaunchpadRenderer {
       this.rhythmRangeButtons.set(weeks, button);
       button.addEventListener("click", () => this.setRhythmRange(weeks));
     }
-    header.createDiv({ cls: "launchpad-badge is-accent", text: `本周活跃 ${this.summary.active.length} 次改动` });
+    header.createDiv({ cls: "launchpad-badge", text: `近 7 天更新 ${this.summary.active.length} 个文件` });
 
     const split = card.createDiv({ cls: "launchpad-rhythm-split" });
     this.renderHeatmap(split);
@@ -2033,7 +2048,7 @@ class LaunchpadRenderer {
     const pages = this.pagesChangedOn(key);
     const head = host.createDiv({ cls: "launchpad-heat-detail-head" });
     head.createSpan({ cls: "launchpad-heat-detail-date", text: key });
-    head.createSpan({ cls: "launchpad-badge", text: `${pages.length} 次变更` });
+    head.createSpan({ cls: "launchpad-badge", text: `${pages.length} 个文件最后更新于此日` });
     const perType = new Map();
     for (const page of pages) {
       const type = textOr(page.type, "other") || "other";
@@ -2090,7 +2105,7 @@ class LaunchpadRenderer {
       .filter(([key]) => key >= rangeStartKey && key <= todayKey)
       .map(([, count]) => count);
     this.heatRangeLabel.setText(`完整 53 周 · 统计近 ${this.rhythmWeeks} 周`);
-    this.heatPeakLabel.setText(`峰值 ${Math.max(1, ...visibleCounts)} 次/天`);
+    this.heatPeakLabel.setText(`按最后修改日期 · 峰值 ${Math.max(0, ...visibleCounts)} 个文件/天`);
   }
 
   renderCompletionStats(parent) {
@@ -2134,8 +2149,8 @@ class LaunchpadRenderer {
     ).size;
     definitions.push(
       ["知识回写", writebacks.filter((page) => page.knowledge_writeback === "completed").length, writebacks.length],
-      ["素材升级", sources, sources + raw],
-      [`近 ${this.rhythmWeeks} 周活跃`, rangeActiveDays, this.rhythmWeeks * 7],
+      ["信源占素材比例", sources, sources + raw],
+      [`近 ${this.rhythmWeeks} 周更新日期占比`, rangeActiveDays, this.rhythmWeeks * 7],
     );
     return definitions;
   }
@@ -2416,13 +2431,9 @@ class LaunchpadRenderer {
         text: STAGE_LABEL[stage] || stage,
       });
       groupLeft.createDiv({ cls: "launchpad-row-title", text: `${rows.length} 篇` });
-      if (contentIndexTarget) {
-        groupRow.addEventListener("click", () =>
-          this.view.openTarget(contentIndexTarget, "内容项目索引"),
-        );
-      }
-      for (const article of rows.slice(0, 4)) {
-        const row = list.createDiv({ cls: "launchpad-breakdown-row" });
+      const stageList = list.createDiv({ cls: "launchpad-stage-items" });
+      const renderArticle = (article) => {
+        const row = stageList.createDiv({ cls: "launchpad-breakdown-row" });
         const left = row.createDiv({ cls: "launchpad-row-left" });
         left.createDiv({ cls: "launchpad-row-title", text: articleLabel(article) });
         const right = row.createDiv({ cls: "launchpad-row-right" });
@@ -2440,6 +2451,14 @@ class LaunchpadRenderer {
           ).open();
         });
         makeClickable(row, () => this.view.openTarget(article.path, article.title), `打开内容项目：${article.title}`);
+      };
+      rows.slice(0, 4).forEach(renderArticle);
+      if (rows.length > 4) {
+        const expand = addButton(groupRow, `查看该阶段全部 ${rows.length} 篇`, "launchpad-row-action");
+        expand.addEventListener("click", () => {
+          rows.slice(4).forEach(renderArticle);
+          expand.remove();
+        });
       }
     }
   }
@@ -2533,13 +2552,6 @@ class LaunchpadRenderer {
       contentProjects,
       reviewingProjects,
     } = this.getReviewQueues();
-    const suggestions = suggestReviewActions({
-      tasks,
-      pages: this.pages,
-      health: this.snapshots.health,
-      contentProjects,
-    });
-
     const overview = this.panels.review.createDiv({ cls: "launchpad-card" });
     const header = overview.createDiv({ cls: "launchpad-card-header launchpad-review-header" });
     const title = header.createDiv({ cls: "launchpad-card-title" });
@@ -2556,32 +2568,12 @@ class LaunchpadRenderer {
           : "手动整理",
     });
     const actions = header.createDiv({ cls: "launchpad-actions" });
-    const generate = addButton(actions, "生成下一批行动", "launchpad-btn is-primary");
-    generate.title =
-      suggestions.length > 0
-        ? `将生成 ${suggestions.length} 条去重后的行动，写入 Tempo`
-        : "当前没有新的复盘行动";
+    const generate = addButton(actions, "预览下一批行动", "launchpad-btn is-primary");
     const openNow = addButton(actions, "打开 Tempo");
     openNow.addEventListener("click", () => this.plugin.openActionBoard());
-    generate.addEventListener("click", async () => {
-      generate.disabled = true;
-      try {
-        if (!suggestions.length) {
-          new Notice("Crisp Launchpad：当前没有新的复盘行动");
-          generate.disabled = false;
-          return;
-        }
-        for (const suggestion of suggestions) {
-          await this.plugin.createAction(suggestion);
-        }
-        await this.plugin.refreshActionSnapshots({ silent: true });
-        new Notice(`Crisp Launchpad：已生成 ${suggestions.length} 条行动，写入 Tempo`);
-        await this.view.render();
-      } catch (error) {
-        new Notice(`Crisp Launchpad：${error.message || error}`, 8000);
-        generate.disabled = false;
-      }
-    });
+    generate.addEventListener("click", () => new ReviewActionsModal(this.app, this.plugin, this.view, {
+      pages: this.pages, health: this.snapshots.health, contentProjects,
+    }).open());
 
     const metrics = overview.createDiv({ cls: "launchpad-review-metrics" });
     for (const [value, label, detail] of [
@@ -2723,6 +2715,26 @@ class LaunchpadRenderer {
 
   renderSystem() {
     if (this.profile.features.kernelPill) this.renderSystemDrawer(this.panels.system);
+    const findings = this.snapshots.health?.data?.findings;
+    if (Array.isArray(findings)) {
+      const card = this.panels.system.createDiv({ cls: "launchpad-card" });
+      const header = card.createDiv({ cls: "launchpad-card-header" });
+      header.createDiv({ cls: "launchpad-card-title", text: "问题清单" });
+      header.createSpan({ cls: "launchpad-badge", text: `全库 · ${findings.length} 项` });
+      const list = card.createDiv({ cls: "launchpad-findings-list" });
+      const labels = { blocking: "阻塞", error: "阻塞", operational: "待处理", informational: "提示" };
+      const order = { blocking: 0, error: 0, operational: 1, informational: 2 };
+      for (const finding of [...findings].sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3))) {
+        const path = textOr(finding.path || finding.evidence?.path);
+        const row = list.createDiv({ cls: "launchpad-breakdown-row launchpad-finding-row" });
+        const left = row.createDiv({ cls: "launchpad-row-left" });
+        left.createDiv({ cls: "launchpad-row-title", text: textOr(finding.message || finding.summary, finding.code || "待检查") });
+        if (path) left.createDiv({ cls: "launchpad-finding-path", text: path });
+        row.createSpan({ cls: "launchpad-badge", text: labels[finding.severity] || finding.severity || "提示" });
+        if (path) makeClickable(row, () => this.view.openTarget(path), `打开问题来源：${path}`);
+      }
+      if (!findings.length) this.renderEmpty(list, "没有待处理问题");
+    }
     if (!this.hasTab("knowledge") && !this.hasTab("review") && this.profile.kpis?.length) {
       this.renderKpis(this.panels.system);
     }
@@ -2925,6 +2937,7 @@ class CrispPanelRenderer {
     this.bookmarks = Array.isArray(data.bookmarks) ? data.bookmarks : [];
     this.captures = Array.isArray(data.captures) ? data.captures : [];
     this.triage = Array.isArray(data.triage) ? data.triage : [];
+    this.triageTotal = Number.isFinite(data.triageTotal) ? data.triageTotal : this.triage.length;
     this.topic = textOr(data.topic, "");
     this.activeTab = PANEL_TABS.some((tab) => tab.id === data.activeTab)
       ? data.activeTab
@@ -2970,7 +2983,7 @@ class CrispPanelRenderer {
         "今天",
       ],
       [openTasks.filter((task) => task.bucket === "waiting").length, "等待"],
-      [this.triage.length, "待整理"],
+      [this.triageTotal, "全库待整理"],
     ]) {
       const stat = stats.createDiv({ cls: "crisp-panel-stat" });
       stat.createDiv({ cls: "crisp-panel-stat-value", text: String(value) });
@@ -3016,6 +3029,9 @@ class CrispPanelRenderer {
 
   renderCapture(parent) {
     const section = parent.createDiv({ cls: "crisp-panel-section" });
+    section.addClass("crisp-panel-capture-editor");
+    section.dataset.captureTopic = this.topic;
+    section.dataset.captureType = this.view.captureType;
     const title = section.createDiv({ cls: "crisp-panel-section-title" });
     title.createSpan({ text: "捕获" });
     title.createSpan({ text: this.topic });
@@ -3062,6 +3078,7 @@ class CrispPanelRenderer {
       }
       saving = true;
       save.disabled = true;
+      input.readOnly = true;
       try {
         const path = await this.plugin.createInboxCapture({
           text,
@@ -3070,25 +3087,31 @@ class CrispPanelRenderer {
         });
         this.view.captureDraft = "";
         new Notice(`Crisp 行动面板：已捕获 → ${path}`);
+        input.value = "";
+        input.readOnly = false;
+        save.disabled = !hasTopic;
+        saving = false;
         await this.view.render();
       } catch (error) {
         new Notice(`Crisp 行动面板：${error.message || error}`);
+        input.readOnly = false;
         save.disabled = false;
         saving = false;
       }
     };
     save.addEventListener("click", submit);
     input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault();
         submit();
       }
     });
 
-    const listTitle = section.createDiv({ cls: "crisp-panel-section-title" });
+    const recent = parent.createDiv({ cls: "crisp-panel-section" });
+    const listTitle = recent.createDiv({ cls: "crisp-panel-section-title" });
     listTitle.createSpan({ text: "今天的捕获" });
     listTitle.createSpan({ text: `${this.captures.length} 条` });
-    const list = section.createDiv({ cls: "crisp-panel-list" });
+    const list = recent.createDiv({ cls: "crisp-panel-list" });
     if (!this.captures.length) {
       list.createDiv({ cls: "crisp-panel-empty", text: "今天还没有捕获" });
       return;
@@ -3100,7 +3123,7 @@ class CrispPanelRenderer {
     const section = parent.createDiv({ cls: "crisp-panel-section" });
     const title = section.createDiv({ cls: "crisp-panel-section-title" });
     title.createSpan({ text: "待整理" });
-    title.createSpan({ text: `${this.triage.length} 条` });
+    title.createSpan({ text: `${this.triage.length} / ${this.triageTotal} 条` });
     section.createDiv({
       cls: "crisp-panel-capture-hint",
       text: "raw/inbox 未归位 · 点条目可转为行动 / 标为已处理（转选题需桌面端）",
@@ -3111,6 +3134,13 @@ class CrispPanelRenderer {
       return;
     }
     for (const page of this.triage) this.renderPageRow(list, page, "triage");
+    if (this.triage.length < this.triageTotal) {
+      const more = addButton(section, `查看全部 ${this.triageTotal} 条`);
+      more.addEventListener("click", () => {
+        this.view.showAllTriage = true;
+        this.view.render();
+      });
+    }
   }
 
   renderPageRow(parent, page, kind) {
@@ -3238,19 +3268,39 @@ class CrispPanelView extends ItemView {
     const pages = collectPages(this.app);
     const bookmarks = this.plugin.readBookmarks();
     if (nonce !== this.renderNonce) return;
-    this.contentEl.empty();
-    new CrispPanelRenderer(this, {
+    const topic = captureTargetTopic(this.app, this.plugin.listTopics(), primaryTopic(this.plugin.lastCapabilities));
+    const previousEditor = this.activePanelTab === "capture" ? this.contentEl.querySelector?.(".crisp-panel-capture-editor") : null;
+    const preserveEditor = previousEditor && previousEditor.dataset.captureTopic === topic && previousEditor.dataset.captureType === this.captureType;
+    // Keep the actual focused textarea in the document: restoring focus after replacement
+    // would still interrupt an IME composition or move the mobile keyboard.
+    const target = createDetachedContainer(this.contentEl, "crisp-panel-render-buffer");
+    const triage = inboxTriageItems(pages, Number.MAX_SAFE_INTEGER);
+    const renderer = new CrispPanelRenderer(this, {
       tasks,
       bookmarks,
       captures: capturedToday(pages),
-      triage: inboxTriageItems(pages),
-      topic: captureTargetTopic(
-        this.app,
-        this.plugin.listTopics(),
-        primaryTopic(this.plugin.lastCapabilities),
-      ),
+      triage: this.showAllTriage ? triage : triage.slice(0, 20),
+      triageTotal: triage.length,
+      topic,
       activeTab: this.activePanelTab,
-    }).render();
+    });
+    renderer.root = target;
+    renderer.render();
+    if (preserveEditor) {
+      const oldBody = previousEditor.parentElement;
+      const nextBody = target.querySelector(".crisp-panel-body");
+      for (const child of [...oldBody.children]) if (child !== previousEditor) child.remove();
+      for (const child of [...nextBody.children]) if (!child.classList.contains("crisp-panel-capture-editor")) oldBody.appendChild(child);
+      for (const child of [...this.contentEl.children]) if (child !== oldBody) child.remove();
+      for (const child of [...target.children]) {
+        if (child === nextBody) continue;
+        if (child.classList.contains("crisp-panel-header") || child.classList.contains("crisp-panel-tabs")) this.contentEl.insertBefore(child, oldBody);
+        else this.contentEl.appendChild(child);
+      }
+    } else {
+      this.contentEl.empty();
+      for (const child of [...target.children]) this.contentEl.appendChild(child);
+    }
   }
 
   onClose() {
@@ -3274,6 +3324,78 @@ class CrispPanelView extends ItemView {
     }
     new Notice(`Crisp 行动面板：未找到「${label || target}」`);
     return false;
+  }
+}
+
+class ReviewActionsModal extends Modal {
+  constructor(app, plugin, view, context) {
+    super(app);
+    this.plugin = plugin;
+    this.view = view;
+    this.context = context;
+    this.closed = false;
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("launchpad-review-preview-modal");
+    this.contentEl.createEl("h2", { text: "下一批行动" });
+    const status = this.contentEl.createDiv({ cls: "launchpad-modal-hint", text: "正在核对最近 14 天的完成记录…" });
+    try {
+      const tasks = await this.plugin.readReviewTasks(new Date(), this.context);
+      if (this.closed) return;
+      const suggestions = suggestReviewActions({ ...this.context, tasks });
+      status.setText(suggestions.length ? "确认后写入 Tempo。" : "当前没有新的复盘行动。");
+      const selections = [];
+      for (const suggestion of suggestions) {
+        const row = this.contentEl.createDiv({ cls: "launchpad-review-choice" });
+        const label = row.createEl("label");
+        const checkbox = label.createEl("input", { attr: { type: "checkbox" } });
+        checkbox.checked = true;
+        label.createSpan({ text: suggestion.text });
+        selections.push({ suggestion, checkbox });
+        if (suggestion.link) {
+          const source = addButton(row, "打开来源", "launchpad-row-action");
+          source.addEventListener("click", () => this.view.openTarget(suggestion.link));
+        }
+      }
+      if (!suggestions.length) return;
+      const create = addButton(this.contentEl, "生成选中行动", "launchpad-btn is-primary");
+      create.addEventListener("click", async () => {
+        const selected = selections.filter(({ checkbox }) => checkbox.checked && !checkbox.disabled);
+        if (!selected.length) { status.setText("请至少选择一条行动。"); return; }
+        create.disabled = true;
+        let created = 0;
+        try {
+          // Re-read before writing: another view/device may have completed or created a task
+          // while this preview was open. Failed history reads must never turn into an empty history.
+          const current = await this.plugin.readReviewTasks(new Date(), this.context);
+          const eligible = new Set(suggestReviewActions({ ...this.context, tasks: current, max: Number.MAX_SAFE_INTEGER }).map(s => s.identity || normalizeActionKey(s.text)));
+          for (const { suggestion, checkbox } of selected) {
+            if (eligible.has(suggestion.identity || normalizeActionKey(suggestion.text))) {
+              await this.plugin.createAction(suggestion);
+              created += 1;
+            }
+            checkbox.checked = false;
+            checkbox.disabled = true;
+          }
+          new Notice(`Crisp Launchpad：已生成 ${created} 条行动，写入 Tempo`);
+          this.close();
+          this.plugin.refreshViews();
+          try { await this.plugin.refreshActionSnapshots({ silent: true }); }
+          catch (error) { new Notice(`行动已保存，快照刷新失败：${error.message || error}`); }
+        } catch (error) {
+          if (!this.closed) status.setText(`已生成 ${created} 条；${error.message || error}。可重试未完成项。`);
+          create.disabled = false;
+        }
+      });
+    } catch (error) {
+      if (!this.closed) status.setText(`无法核对完成记录：${error.message || error}`);
+    }
+  }
+
+  onClose() {
+    this.closed = true;
+    this.contentEl.empty();
   }
 }
 
@@ -3860,8 +3982,17 @@ class CrispLaunchpadPlugin extends Plugin {
 
   // Never overwrite a data.json that could not be read and could not be backed up either.
   async saveData(data) {
-    if (this.dataWriteBlocked) return;
-    await super.saveData(data);
+    if (this.dataWriteBlocked) throw new Error("设置文件受保护，本次运行无法保存设置");
+    const text = JSON.stringify(data, null, 2);
+    const path = `${this.manifest.dir}/data.json`;
+    const adapter = this.app.vault.adapter;
+    const write = async () => {
+      await adapter.write(path, text);
+      if (await adapter.read(path) !== text) throw new Error("设置保存校验失败，请重试");
+    };
+    const pending = (this.settingsSaveQueue || Promise.resolve()).catch(() => {}).then(write);
+    this.settingsSaveQueue = pending;
+    return pending;
   }
 
   // loadData() yields undefined when data.json exists but cannot be read; keep a copy before defaults take over.
@@ -4042,7 +4173,11 @@ class CrispLaunchpadPlugin extends Plugin {
   }
 
   async saveSettings() {
-    await this.saveData(this.settings);
+    try { await this.saveData(this.settings); }
+    catch (error) {
+      new Notice(`Crisp Launchpad：设置未保存，${error.message || error}`, 8000);
+      throw error;
+    }
   }
 
   canRunAnks() {
@@ -4419,14 +4554,16 @@ class CrispLaunchpadPlugin extends Plugin {
     return path;
   }
 
-  async createAction({ text, due = "", project = "", link = "" }) {
+  async createAction({ text, due = "", project = "", link = "", identity = "" }) {
     const clean = String(text ?? "").trim();
     if (!clean) throw new Error("行动不能为空");
     const tempo = this.tempoApi();
     if (!tempo) throw new Error(TEMPO_REQUIRED_HINT);
     const notes = [due ? `截止 ${due}` : "", project ? `#${project}` : ""].filter(Boolean).join(" · ");
     await tempo.createTaskFromSource({
-      sourceId: launchpadActionSourceId(clean),
+      sourceId: identity
+        ? launchpadActionSourceId(identity)
+        : link ? launchpadActionSourceId(String(link), "source") : launchpadActionSourceId(clean),
       title: clean,
       ...(notes ? { description: `来自 Crisp Launchpad · ${notes}` } : {}),
       ...(link ? { notePath: String(link) } : {}),
@@ -4436,10 +4573,9 @@ class CrispLaunchpadPlugin extends Plugin {
 
   async markProcessed(file) {
     if (!(file instanceof TFile)) throw new Error("原文不存在");
-    const content = await this.app.vault.read(file);
     const topic = strictTopicFromPath(file.path);
     if (!topic) throw new Error("原文不属于 Topics/，不能按 Topic 路由标记");
-    await this.app.vault.modify(file, markProcessedContent(content, new Date(), topic));
+    await this.app.vault.process(file, content => markProcessedContent(content, new Date(), topic));
   }
 
   async convertInboxToTopic(file) {
@@ -4505,6 +4641,58 @@ class CrispLaunchpadPlugin extends Plugin {
 
   usesTempo() {
     return this.actionSource === "tempo" && Boolean(this.tempoApi());
+  }
+
+  async readReviewTasks(today = new Date(), context = null) {
+    const tempo = this.tempoApi();
+    if (!tempo || typeof tempo.getCompletedOn !== "function" || typeof tempo.getActionOverview !== "function") {
+      throw new Error("请启用支持完成历史查询的 Crisp Tempo");
+    }
+    const overview = await tempo.getActionOverview();
+    if (!overview?.licensed || !Array.isArray(overview.tasks)) throw new Error(TEMPO_REQUIRED_HINT);
+    const tasks = overview.tasks.map(tempoSummaryToAction);
+    const days = Array.from({ length: REVIEW_DONE_COOLDOWN_DAYS + 1 }, (_, offset) => {
+      const day = new Date(today);
+      day.setDate(day.getDate() - offset);
+      return dateKey(day);
+    });
+    const history = await Promise.all(days.map(async key => {
+      const result = await tempo.getCompletedOn(key);
+      if (!Array.isArray(result?.tasks)) throw new Error("Tempo 完成历史不可用");
+      return result.tasks.map(task => ({
+        ...tempoSummaryToAction({ ...task, bucket: "done" }), doneAt: key,
+      }));
+    }));
+    const all = new Map([...tasks, ...history.flat()].map(task => [task.id, task]));
+    if (context) {
+      if (typeof tempo.getTasksBySource !== "function") throw new Error("Tempo 来源查询不可用，请更新后重试");
+      const candidates = suggestReviewActions({ ...context, tasks: [], today, max: Number.MAX_SAFE_INTEGER, perGroupLimit: Number.MAX_SAFE_INTEGER });
+      const bySource = new Map();
+      for (const candidate of candidates) {
+        if (!candidate.identity) continue;
+        for (const day of days) bySource.set(launchpadActionSourceId(candidate.identity, day), candidate.identity);
+        // Source IDs carry the creation day, which can predate the completion window.
+        // Recent Tempo also includes them in completed history; never infer creation from completion.
+        for (const task of all.values()) {
+          const match = /^crisp-launchpad:(\d{4})(\d{2})(\d{2})-/.exec(task.sourceId || "");
+          if (match) {
+            const day = `${match[1]}-${match[2]}-${match[3]}`;
+            const sourceId = launchpadActionSourceId(candidate.identity, day);
+            if (sourceId === task.sourceId) bySource.set(sourceId, candidate.identity);
+          }
+        }
+      }
+      if (bySource.size) {
+        const linked = await tempo.getTasksBySource([...bySource.keys()]);
+        if (!linked || typeof linked !== "object" || Array.isArray(linked)) throw new Error("Tempo 来源查询失败");
+        for (const task of Object.values(linked)) {
+          const existing = all.get(`tempo:${task.id}`);
+          const identity = bySource.get(task.sourceId);
+          if (existing && identity) existing.reviewIdentity = identity;
+        }
+      }
+    }
+    return [...all.values()];
   }
 
   runTempoCommand(command) {
@@ -4639,60 +4827,68 @@ class CrispLaunchpadPlugin extends Plugin {
     return { contentId, projectDir, validation };
   }
 
-  async updateContentProject(projectDir, { stage, status, nextAction }) {
+  async updateContentProject(projectDir, changes) {
+    const pending = (this.contentWriteQueue || Promise.resolve()).catch(() => {}).then(
+      () => this.commitContentProject(projectDir, changes),
+    );
+    this.contentWriteQueue = pending;
+    return pending;
+  }
+
+  async commitContentProject(projectDir, { stage, status, nextAction }) {
+    if (!CONTENT_STAGES.includes(stage) || !CONTENT_STATUSES.includes(status)) {
+      throw new Error("项目阶段或状态无效");
+    }
     const today = dateKey(new Date());
-    const path = `${projectDir}/project.yaml`;
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) throw new Error("project.yaml 不存在");
-    let content = await this.app.vault.read(file);
-    content = updateProjectField(content, "stage", stage);
-    content = updateProjectField(content, "status", status);
-    content = updateProjectField(content, "updated_at", today);
-    content = updateProjectField(content, "next_action", nextAction || "继续推进当前阶段");
-    if (status === "published") {
-      content = updateProjectField(content, "publication_status", "live");
-    }
-    await this.app.vault.modify(file, content);
-
-    const articlePath = `${projectDir}/article.md`;
-    const articleFile = this.app.vault.getAbstractFileByPath(articlePath);
-    if (articleFile instanceof TFile) {
-      let articleContent = await this.app.vault.read(articleFile);
-      articleContent = updateProjectField(articleContent, "stage", stage);
-      articleContent = updateProjectField(articleContent, "status", status);
-      articleContent = updateProjectField(articleContent, "updated_at", today);
+    const vault = this.app.vault;
+    const projectFile = vault.getAbstractFileByPath(`${projectDir}/project.yaml`);
+    if (!(projectFile instanceof TFile)) throw new Error("project.yaml 不存在");
+    const changes = [];
+    // Prepare every new file before the first write. Keep the original bytes for recovery.
+    for (const name of ["project.yaml", "article.md", "publish.md"]) {
+      const file = vault.getAbstractFileByPath(`${projectDir}/${name}`);
+      if (!(file instanceof TFile)) continue;
+      const before = await vault.read(file);
+      let after = updateProjectField(before, "stage", stage);
+      if (name === "publish.md") after = before;
+      after = updateProjectField(after, "status", status);
+      after = updateProjectField(after, "updated_at", today);
+      if (name === "project.yaml") after = updateProjectField(after, "next_action", nextAction || "继续推进当前阶段");
       if (status === "published") {
-        articleContent = updateProjectField(articleContent, "publication_status", "live");
+        after = updateProjectField(after, "publication_status", "live");
+        if (name === "publish.md" && !projectField(before, "published_at")) {
+          after = updateProjectField(after, "published_at", today);
+        }
       }
-      await this.app.vault.modify(articleFile, articleContent);
+      changes.push({ file, before, after });
     }
-
-    const publishPath = `${projectDir}/publish.md`;
-    const publishFile = this.app.vault.getAbstractFileByPath(publishPath);
-    if (publishFile instanceof TFile) {
-      let publishContent = await this.app.vault.read(publishFile);
-      publishContent = updateProjectField(publishContent, "status", status);
-      publishContent = updateProjectField(publishContent, "updated_at", today);
-      if (status === "published") {
-        publishContent = updateProjectField(publishContent, "publication_status", "live");
-        publishContent = updateProjectField(publishContent, "published_at", today);
+    const applied = [];
+    try {
+      for (const change of changes) {
+        await vault.process(change.file, current => {
+          if (current !== change.before) throw new Error(`文件已被外部修改：${change.file.path}`);
+          return change.after;
+        });
+        applied.push(change);
       }
-      await this.app.vault.modify(publishFile, publishContent);
+    } catch (error) {
+      const conflicts = [];
+      for (const change of applied.reverse()) {
+        try {
+          await vault.process(change.file, current => {
+            if (current !== change.after) throw new Error("外部修改");
+            return change.before;
+          });
+        } catch (_) { conflicts.push(change.file.path); }
+      }
+      if (conflicts.length) throw new Error(`保存未完成，以下文件因外部修改或写入失败未能恢复：${conflicts.join("、")}；${error.message || error}`);
+      throw new Error(`项目状态未保存，已恢复原内容：${error.message || error}`);
     }
-
     if (this.canRunAnks()) {
-      // 先重新物化 project.md 再建快照，否则 content 快照读到的是旧阶段。
       const projectId = String(projectDir || "").replace(/\/+$/, "").split("/").pop();
-      await this.syncContentArtifacts(projectId, {
-        force: true,
-        topic: contentTopicFromPath(projectDir),
-      });
-      try {
-        await this.refreshSystemSnapshots({ silent: true });
-      } catch (error) {
-        // The project write succeeded; a system-wide snapshot may still be blocked
-        // by an unrelated gate elsewhere in the vault.
-      }
+      await this.syncContentArtifacts(projectId, { force: true, topic: contentTopicFromPath(projectDir) });
+      try { await this.refreshSystemSnapshots({ silent: true }); }
+      catch (error) { new Notice(`项目状态已保存，快照刷新失败：${error.message || error}`); }
     }
     this.refreshViews();
     return { stage, status, nextAction };

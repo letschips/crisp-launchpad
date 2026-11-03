@@ -57,8 +57,6 @@
   --pulse-glass-rim: var(--crisp-glass-rim);
   /* 不要在这里重新声明 --text-normal：自引用（var(--text-normal)）会构成循环，
      使该变量在计算值阶段失效，并且不会回退到主题继承值，文字会掉到浏览器初始色。 */
-  --text-muted: color-mix(in srgb, var(--text-normal) 78%, transparent);
-  --text-faint: color-mix(in srgb, var(--text-normal) 55%, transparent);
   background: var(--pulse-ui-soft) !important;
   color: var(--text-normal);
   font-family: var(--font-interface);
@@ -71,130 +69,11 @@
   display: none;
 }
 
-/* Translucent mode (macOS Glassmorphism matching Crisp Pulse Modern) */
-body.theme-dark.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpad-view {
-  --crisp-surface: color-mix(in srgb, var(--background-primary) 36%, transparent);
-  --crisp-surface-soft: color-mix(in srgb, var(--background-primary) 22%, transparent);
-  --crisp-border: color-mix(in srgb, var(--text-normal) 14%, transparent);
-  --crisp-glass-rim: rgba(255, 255, 255, 0.18);
-  --text-normal: #f1f2f6;
-  --text-muted: rgba(235, 240, 250, 0.80);
-  --text-faint: rgba(220, 225, 235, 0.54);
+/* Inherit text and surfaces from the host in both themes. */
+body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpad-view {
+  --crisp-surface: color-mix(in srgb, var(--background-primary) 82%, transparent);
+  --crisp-surface-soft: color-mix(in srgb, var(--background-secondary) 72%, transparent);
   background: transparent !important;
-}
-
-body.theme-light.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpad-view {
-  --crisp-surface: rgba(255, 255, 255, 0.82);
-  --crisp-surface-soft: rgba(248, 249, 250, 0.72);
-  --crisp-border: rgba(0, 0, 0, 0.08);
-  --crisp-glass-rim: rgba(255, 255, 255, 0.95);
-  --text-normal: #1f2937;
-  --text-muted: #4b5563;
-  --text-faint: #6b7280;
-  background: transparent !important;
-}
-
-/* Dark theme fallback：毛玻璃关闭，或处于弹出窗口 / 模态时使用实色令牌。
-   没有这一层时，深色主题下这两个场景只能依赖已被删除的自引用声明。 */
-body.theme-dark .crisp-launchpad-view {
-  --crisp-surface: color-mix(in srgb, var(--background-primary) 92%, #ffffff);
-  --crisp-surface-soft: var(--background-primary);
-  --crisp-border: color-mix(in srgb, var(--text-normal) 16%, transparent);
-  --crisp-glass-rim: rgba(255, 255, 255, 0.10);
-  --text-normal: #ecedf1;
-  --text-muted: rgba(236, 237, 241, 0.78);
-  --text-faint: rgba(236, 237, 241, 0.52);
-}
-
-/* Light Theme specifics */
-body.theme-light .crisp-launchpad-view {
-  --crisp-surface: #ffffff;
-  --crisp-surface-soft: var(--background-secondary, #f8f9fa);
-  --crisp-border: rgba(0, 0, 0, 0.08);
-  --crisp-glass-rim: rgba(255, 255, 255, 0.9);
-  --text-normal: #1f2937;
-  --text-muted: #4b5563;
-  --text-faint: #6b7280;
-  background: var(--background-secondary, #f8f9fa) !important;
-}
-
-body.theme-light .crisp-launchpad-view .launchpad-card {
-  background: #ffffff !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02) !important;
-  border: 1px solid rgba(0, 0, 0, 0.07) !important;
-}
-
-body.theme-light .crisp-launchpad-view .launchpad-kpi-box {
-  background: var(--background-primary, #ffffff) !important;
-  border: 1px solid rgba(0, 0, 0, 0.07) !important;
-  box-shadow: none !important;
-}
-
-body.theme-light .crisp-launchpad-view .launchpad-kpi-box:hover {
-  background: var(--background-secondary, #f8f9fa) !important;
-  border-color: color-mix(in srgb, var(--pulse-ui-accent) 45%, rgba(0, 0, 0, 0.07)) !important;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06) !important;
-}
-
-body.theme-light .crisp-launchpad-view .launchpad-breakdown-card {
-  background: var(--background-secondary, #f8f9fa) !important;
-  border: 1px solid rgba(0, 0, 0, 0.06) !important;
-}
-
-body.theme-light .crisp-launchpad-view button.launchpad-btn {
-  background: #ffffff !important;
-  border: 1px solid rgba(0, 0, 0, 0.1) !important;
-  color: #4b5563 !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
-}
-
-body.theme-light .crisp-launchpad-view button.launchpad-btn:hover {
-  background: #f3f4f6 !important;
-  color: #111827 !important;
-}
-
-body.theme-light .crisp-launchpad-view button.launchpad-btn.is-primary {
-  background: var(--pulse-ui-accent) !important;
-  color: #ffffff !important;
-  border-color: var(--pulse-ui-accent) !important;
-}
-
-body.theme-light .crisp-launchpad-view button.launchpad-btn.is-accent {
-  background: #eef1f8 !important;
-  color: #47608f !important;
-  border-color: rgba(107, 132, 191, 0.42) !important;
-}
-
-body.theme-light .crisp-launchpad-view button.launchpad-btn.is-accent:hover {
-  background: #e4e9f5 !important;
-  color: #33456b !important;
-}
-
-body.theme-light .crisp-launchpad-view .launchpad-nav-card {
-  background: #ffffff !important;
-  border: 1px solid rgba(0, 0, 0, 0.07) !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
-}
-
-body.theme-light .crisp-launchpad-view .launchpad-nav-card:hover {
-  background: var(--background-secondary, #f8f9fa) !important;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06) !important;
-}
-
-body.theme-light .crisp-launchpad-view .launchpad-badge {
-  background: rgba(0, 0, 0, 0.04) !important;
-  color: #374151 !important;
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
-}
-
-body.theme-light .crisp-launchpad-view .launchpad-badge.is-accent {
-  background: color-mix(in srgb, var(--pulse-ui-accent) 12%, transparent) !important;
-  color: var(--pulse-ui-accent) !important;
-  border-color: color-mix(in srgb, var(--pulse-ui-accent) 25%, transparent) !important;
-}
-
-body.theme-light .crisp-launchpad-view .launchpad-row-right {
-  color: #4b5563 !important;
 }
 
 .crisp-launchpad-view .markdown-preview-sizer,
@@ -338,9 +217,9 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
-  animation: pulse-breathing 2.4s infinite ease-in-out;
+  background: var(--color-green);
+  box-shadow: none;
+  animation: none;
   flex-shrink: 0;
 }
 
@@ -350,7 +229,7 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 }
 
 .crisp-launchpad-view .launchpad-dot.is-inactive {
-  background: #f59e0b;
+  background: var(--color-orange);
   box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
   animation: none;
 }
@@ -455,23 +334,23 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #f59e0b;
+  background: var(--color-orange);
   box-shadow: 0 0 8px rgba(245, 158, 11, 0.45);
   flex-shrink: 0;
 }
 
 .crisp-launchpad-view .launchpad-status-dot.is-healthy {
-  background: #10b981;
+  background: var(--color-green);
   box-shadow: 0 0 8px rgba(16, 185, 129, 0.55);
 }
 
 .crisp-launchpad-view .launchpad-status-dot.is-warning {
-  background: #f59e0b;
+  background: var(--color-orange);
   box-shadow: 0 0 8px rgba(245, 158, 11, 0.45);
 }
 
 .crisp-launchpad-view .launchpad-status-dot.is-error {
-  background: #ef4444;
+  background: var(--color-red);
   box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
 }
 
@@ -1174,7 +1053,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 
 .crisp-launchpad-view .launchpad-heat-week.is-outside-range .launchpad-heat-cell {
   opacity: 0.28;
-  filter: grayscale(0.65);
 }
 
 .crisp-launchpad-view .launchpad-heat-week.is-outside-range .launchpad-heat-cell:hover,
@@ -1437,7 +1315,7 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 
 .crisp-launchpad-view button.launchpad-tab.is-active {
   background: var(--pulse-ui-accent) !important;
-  color: #ffffff !important;
+  color: var(--text-on-accent) !important;
   border-color: var(--pulse-ui-accent) !important;
 }
 
@@ -1445,23 +1323,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-body.theme-light .crisp-launchpad-view button.launchpad-tab {
-  background: #ffffff !important;
-  border-color: rgba(0, 0, 0, 0.1) !important;
-  color: #4b5563 !important;
-}
-
-body.theme-light .crisp-launchpad-view button.launchpad-tab:hover {
-  background: #f3f4f6 !important;
-  color: #111827 !important;
-}
-
-body.theme-light .crisp-launchpad-view button.launchpad-tab.is-active {
-  background: var(--pulse-ui-accent) !important;
-  color: #ffffff !important;
-  border-color: var(--pulse-ui-accent) !important;
 }
 
 /* Native ItemView shell */
@@ -1915,8 +1776,9 @@ body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting tex
   padding: 6px 4px;
   border: 1px solid var(--crisp-border);
   border-radius: var(--crisp-radius-pill);
-  background: var(--crisp-surface);
-  color: var(--text-muted);
+  background: var(--crisp-surface) !important;
+  color: var(--text-muted) !important;
+  box-shadow: none !important;
   font-size: 11px;
   cursor: pointer;
   transition: border-color var(--crisp-dur-fast) var(--crisp-ease),
@@ -1925,8 +1787,8 @@ body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting tex
 
 .crisp-panel-tab.is-active {
   border-color: var(--crisp-accent);
-  background: color-mix(in srgb, var(--crisp-accent) 14%, transparent);
-  color: var(--text-normal);
+  background: color-mix(in srgb, var(--crisp-accent) 14%, var(--crisp-surface)) !important;
+  color: var(--text-normal) !important;
   font-weight: 600;
 }
 
@@ -2033,4 +1895,87 @@ body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting tex
 .crisp-launchpad-view .launchpad-tool-icon svg {
   width: 15px;
   height: 15px;
+}
+
+/* Compact home header; keep controls and text in the theme's palette. */
+.crisp-launchpad-view .launchpad-wrapper > .launchpad-card:first-child {
+  padding: 14px 20px;
+}
+.crisp-launchpad-view .launchpad-wrapper > .launchpad-card:first-child .launchpad-card-header {
+  padding-bottom: 0;
+}
+.crisp-launchpad-view .launchpad-wrapper > .launchpad-card:first-child .launchpad-card-header::after {
+  display: none;
+}
+.crisp-launchpad-view .launchpad-action-list .is-empty {
+  min-height: 48px;
+  padding: 12px;
+}
+.crisp-launchpad-panel-view :is(button.launchpad-btn, button.crisp-panel-type) {
+  background: var(--background-primary) !important;
+  color: var(--text-normal) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--background-modifier-border);
+}
+.crisp-launchpad-panel-view :is(button.launchpad-btn.is-primary, button.crisp-panel-type.is-active) {
+  background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-primary)) !important;
+  border-color: var(--interactive-accent);
+}
+.crisp-launchpad-panel-view :is(button, textarea):focus-visible,
+.launchpad-review-preview-modal :is(button, input):focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+.crisp-panel-capture-editor { min-width: 0; }
+.crisp-panel-render-buffer { display: contents; }
+.launchpad-stage-items { min-width: 0; }
+.launchpad-findings-list {
+  max-height: 480px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.launchpad-finding-row { min-width: 0; }
+.crisp-launchpad-view .launchpad-finding-row .launchpad-row-left {
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  gap: 4px;
+}
+.crisp-launchpad-view .launchpad-finding-row .launchpad-row-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.launchpad-finding-path {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.launchpad-review-preview-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 640px;
+}
+.launchpad-review-choice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.launchpad-review-choice label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1 1 240px;
+  overflow-wrap: anywhere;
+}
+.launchpad-review-preview-modal button {
+  background: var(--background-secondary) !important;
+  color: var(--text-normal) !important;
+  box-shadow: none !important;
+}
+.launchpad-review-preview-modal button.is-primary {
+  background: var(--interactive-accent) !important;
+  color: var(--text-on-accent) !important;
 }

@@ -19,7 +19,8 @@ only interfaces.
 - Native creation and stage progression for ANKS content projects.
 - Direct linkage to the prepared Crisp Base content overview.
 - Opt-in event bridge for safe routing and snapshot synchronization.
-- Unified review tab that generates the next deduplicated batch of actions into Crisp Tempo.
+- Review preview checks the last 14 days of Tempo completions; only confirmed selections become tasks, with links to their sources.
+- Full system findings and inbox totals, with expandable stage and inbox lists.
 - Mobile-compatible capture, content project editing, and responsive layouts.
 - Content pipeline, inbox, recent outputs, knowledge activity, and navigation.
 - Explicit snapshot refresh through `Sidecar/bin/anks`.
@@ -38,6 +39,8 @@ only interfaces.
 ```bash
 npm run check
 ```
+
+Browser workflow checks run against the real plugin in Chromium with an in-memory vault and Tempo boundary fixture (no user data writes). Install `playwright-core` in your development environment, then run `npm run test:e2e`. Optional environment variables: `LAUNCHPAD_PLAYWRIGHT` (module path), `LAUNCHPAD_CHROME` (browser executable), and `LAUNCHPAD_E2E_OUTPUT` (JSON/screenshot output directory; default `/tmp/crisp-launchpad-e2e`). Real Obsidian, Windows and phone keyboard behavior require separate host checks.
 
 Install into a vault by copying `main.js`, `manifest.json`, and `styles.css`
 into `.obsidian/plugins/crisp-launchpad/`.

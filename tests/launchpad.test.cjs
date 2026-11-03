@@ -1117,6 +1117,9 @@ test("推进内容项目：先重新物化控制卡，再重建系统快照", as
         modify: async (file, content) => {
           files.get(file.path).content = content;
         },
+        process: async (file, update) => {
+          files.get(file.path).content = update(files.get(file.path).content);
+        },
       },
     },
     refreshViews: () => {},

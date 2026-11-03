@@ -309,6 +309,14 @@ async function renderView(plugin, viewType) {
   const view = factory(makeLeaf());
   view.app = plugin.app;
   const out = await view.render();
+  // Visit each page: lazy tabs must still exercise every render path.
+  if (viewType === "crisp-launchpad-view") {
+    const root = view.contentEl.children[0];
+    const tabs = root.children.find(child => child.classes.has("launchpad-tabs"));
+    for (const button of tabs?.children || []) {
+      for (const click of button.listeners.click || []) click();
+    }
+  }
   return { view, out };
 }
 
