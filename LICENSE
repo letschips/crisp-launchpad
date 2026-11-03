@@ -1,5 +1,5 @@
 # Crisp Software License Agreement (Proprietary & Single-User Commercial License)
-# Crisp 软件授权与许可协议（专有软件·凭正版激活码授权）
+# Crisp 软件授权与许可协议（专有软件·随 Crisp 套装授权）
 
 Copyright (c) 2026 letschips. All rights reserved.  
 版权所有 (c) 2026 letschips。保留所有权利。
@@ -13,9 +13,9 @@ Copyright (c) 2026 letschips. All rights reserved.
 本软件并非自由开源软件（FOSS），任何使用均须严格遵守以下条款：
 
 ### 1. 合法授权与使用许可
-- **授权前提**：本软件仅向通过官方合法途径购买 Crisp 套装、获取作者正式发放的有效激活码（或经作者事先明确书面授权）的用户授予使用权。
-- **许可范围**：持有合法有效激活码的用户，被授予一项个人的、非独占的、不可转让的、不可再许可的权利，允许在受支持的 Obsidian 客户端及授权设备数量限制内，安装并运行未经修改的本软件官方发行版本。
-- **未授权/未激活限制**：未持有合法有效激活码的任何个人或机构，除在官方公开仓库中查阅公开源代码用于个人学习、评估或安全审查外，无权解锁或完整使用本软件的付费/高级功能，更无权将本软件部署于日常工作或生产环境中。
+- **授权前提**：本软件仅向通过官方合法途径购买 Crisp 套装或 ANKS 一键安装包（或经作者事先明确书面授权）的用户授予使用权。本软件本身不设激活码。
+- **许可范围**：获得合法授权的用户，被授予一项个人的、非独占的、不可转让的、不可再许可的权利，允许在受支持的 Obsidian 客户端及授权设备数量限制内，安装并运行未经修改的本软件官方发行版本。
+- **未授权限制**：未通过上述途径获得授权的任何个人或机构，除在官方公开仓库中查阅公开源代码用于个人学习、评估或安全审查外，无权使用本软件，更无权将本软件部署于日常工作或生产环境中。
 
 ### 2. 禁止事项（核心红线）
 未经作者事先明确的书面许可，任何个人或机构均不得：
@@ -48,9 +48,9 @@ All source code, compiled binaries, visual designs, icon assets, documentation, 
 This Software is NOT free/open-source software (FOSS). Any access or use is strictly governed by the following terms:
 
 ### 1. License Grant and Authorized Use
-- **Prerequisite**: Use of the Software is granted strictly and exclusively to users who have legitimately purchased the Crisp Suite or obtained an authentic activation code directly from the author (or received prior express written permission).
+- **Prerequisite**: Use of the Software is granted strictly and exclusively to users who have legitimately purchased the Crisp Suite or the ANKS starter package (or received prior express written permission). The Software itself has no activation code.
 - **Scope of License**: Authorized license holders receive a personal, non-exclusive, non-transferable, non-sublicensable license to install and run the official, unmodified release of the Software within allowed device limits on supported Obsidian installations.
-- **Unauthorized / Unactivated Restriction**: Without a genuine activation code, you have no right to unlock or use the paid features. Viewing public source code is permitted solely for personal learning, evaluation, and security audit purposes.
+- **Unauthorized Restriction**: Without such authorization, you have no right to use the Software. Viewing public source code is permitted solely for personal learning, evaluation, and security audit purposes.
 
 ### 2. Prohibited Actions
 Without prior express written permission from the author, you shall NOT:

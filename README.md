@@ -44,4 +44,4 @@ into `.obsidian/plugins/crisp-launchpad/`.
 
 ## Status
 
-`0.2.13` is prepared as a release candidate; public release is pending.
+Released on GitHub. The Crisp Suite / ANKS starter package ships the current version; later updates come from GitHub Releases (`main.js`, `manifest.json`, `styles.css`).
