@@ -10,7 +10,9 @@ only interfaces.
 
 - Native `ItemView` instead of a DataviewJS note.
 - System status from `.runtime/snapshot/health.json` and `index.json`.
-- Today / waiting / upcoming actions from Crisp Tempo (the only action source; see `docs/ROLE-CONTRACT.md`).
+- Today strip: actions, Tempo completions, Crisp Pulse score / streak / pending memos, and inbox total; each item appears only when its source is available.
+- Today / waiting / upcoming actions from Crisp Tempo (the only action source; see `docs/ROLE-CONTRACT.md`), filtered with a segmented control.
+- Two-layer cards and segmented tabs shared with Crisp Pulse.
 - Selectable 4 / 13 / 26 / 52 week rhythm ranges.
 - The heatmap always keeps the full 53-week context; range selection only changes the active statistics interval.
 - Quick capture (hands off to Crisp Pulse when enabled); new actions open Crisp Tempo's quick add.

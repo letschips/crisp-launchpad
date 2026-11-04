@@ -666,66 +666,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 }
 
 /* Action snapshot: Today / Waiting / Upcoming / Anytime / Overdue */
-.crisp-launchpad-view .launchpad-action-counts {
-  display: grid;
-  /* 5 档（Now/）或 6 档（Tempo 多一个收件箱），按实际个数等分。 */
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  border-top: 1px solid var(--pulse-ui-border);
-  border-bottom: 1px solid var(--pulse-ui-border);
-}
-
-.crisp-launchpad-view .launchpad-action-count {
-  min-width: 0;
-  padding: 12px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: center;
-  border-left: 1px solid var(--pulse-ui-border);
-}
-
-.crisp-launchpad-view .launchpad-action-count:first-child {
-  border-left: none;
-}
-
-.crisp-launchpad-view .launchpad-action-count.is-clickable {
-  cursor: pointer;
-  user-select: none;
-  transition: background-color var(--crisp-dur-fast) var(--crisp-ease);
-}
-
-.crisp-launchpad-view .launchpad-action-count.is-clickable:hover {
-  background: var(--background-modifier-hover);
-}
-
-.crisp-launchpad-view .launchpad-action-count.is-active {
-  background: var(--background-modifier-hover);
-}
-
-.crisp-launchpad-view .launchpad-action-count.is-active .launchpad-action-count-label {
-  color: var(--text-normal);
-  font-weight: 600;
-}
-
-.crisp-launchpad-view .launchpad-action-count-value {
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.1;
-  color: var(--text-normal);
-  font-variant-numeric: tabular-nums;
-}
-
-.crisp-launchpad-view .launchpad-action-count.is-zero .launchpad-action-count-value {
-  color: var(--text-faint);
-  opacity: 0.6;
-}
-
-.crisp-launchpad-view .launchpad-action-count-label {
-  font-size: 10px;
-  color: var(--text-faint);
-}
-
 .crisp-launchpad-view .launchpad-action-body-wrap {
   display: flex;
   flex-direction: column;
@@ -766,40 +706,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 .crisp-launchpad-view .launchpad-action-list.is-single-column {
   max-height: 380px;
   overflow-y: auto;
-}
-
-.crisp-launchpad-view .launchpad-action-filter-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 2px 4px 8px;
-  border-bottom: 1px dashed var(--pulse-ui-border);
-}
-
-.crisp-launchpad-view .launchpad-action-filter-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--text-normal);
-}
-
-.crisp-launchpad-view .launchpad-action-filter-reset {
-  padding: 2.5px 10px;
-  font-size: 11px;
-  color: var(--text-muted);
-  border: 1px solid var(--pulse-ui-border);
-  border-radius: 999px;
-  background: var(--pulse-ui-surface);
-  cursor: pointer;
-  transition: all var(--crisp-dur-fast) var(--crisp-ease);
-}
-
-.crisp-launchpad-view .launchpad-action-filter-reset:hover {
-  color: var(--text-normal);
-  border-color: var(--pulse-ui-border-hover, var(--text-muted));
-  background: var(--background-modifier-hover);
 }
 
 .crisp-launchpad-view .launchpad-action-item {
@@ -903,11 +809,11 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   }
   /* 窄面板下 Hero 头部改为两行：标题独占一行，状态/动作/日期落到第二行，
      避免副标题被挤断、日期被顶到下一行 */
-  .crisp-launchpad-view .launchpad-wrapper > .launchpad-card:first-child > .launchpad-card-header {
+  .crisp-launchpad-view .launchpad-wrapper > .launchpad-hero > .launchpad-hero-header {
     flex-wrap: wrap;
     row-gap: 12px;
   }
-  .crisp-launchpad-view .launchpad-wrapper > .launchpad-card:first-child > .launchpad-card-header > .launchpad-actions {
+  .crisp-launchpad-view .launchpad-wrapper > .launchpad-hero > .launchpad-hero-header > .launchpad-actions {
     width: 100%;
   }
 }
@@ -1251,15 +1157,7 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 }
 
 @container launchpad (max-width: 700px) {
-  .crisp-launchpad-view .launchpad-action-count {
-    min-height: 48px;
-    padding: 10px 4px;
-  }
-  .crisp-launchpad-view .launchpad-action-count-label {
-    font-size: 12px;
-    white-space: nowrap;
-  }
-  .crisp-launchpad-view .launchpad-action-grid { grid-template-columns: 1fr; }
+      .crisp-launchpad-view .launchpad-action-grid { grid-template-columns: 1fr; }
   .crisp-launchpad-view .launchpad-action-column { padding-right: 0; }
   .crisp-launchpad-view .launchpad-action-column + .launchpad-action-column {
     padding-left: 0;
@@ -1267,19 +1165,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
     margin-top: 14px;
     border-left: none;
     border-top: 1px solid var(--pulse-ui-border);
-  }
-}
-
-@container launchpad (max-width: 380px) {
-  .crisp-launchpad-view .launchpad-action-count {
-    padding: 8px 2px;
-  }
-  .crisp-launchpad-view .launchpad-action-count-value {
-    font-size: 18px;
-  }
-  .crisp-launchpad-view .launchpad-action-count-label {
-    font-size: 11px;
-    white-space: nowrap;
   }
 }
 
@@ -1897,16 +1782,6 @@ body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting tex
   height: 15px;
 }
 
-/* Compact home header; keep controls and text in the theme's palette. */
-.crisp-launchpad-view .launchpad-wrapper > .launchpad-card:first-child {
-  padding: 14px 20px;
-}
-.crisp-launchpad-view .launchpad-wrapper > .launchpad-card:first-child .launchpad-card-header {
-  padding-bottom: 0;
-}
-.crisp-launchpad-view .launchpad-wrapper > .launchpad-card:first-child .launchpad-card-header::after {
-  display: none;
-}
 .crisp-launchpad-view .launchpad-action-list .is-empty {
   min-height: 48px;
   padding: 12px;
@@ -1978,4 +1853,228 @@ body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting tex
 .launchpad-review-preview-modal button.is-primary {
   background: var(--interactive-accent) !important;
   color: var(--text-on-accent) !important;
+}
+
+/* ==========================================================================
+   0.6.0 卡片体系：和 Crisp Pulse 一致的两层结构。
+   外层托盘（浅底、卡片头带图标块）+ 内层面板（实底、轻阴影）。放在文件末尾，覆盖前面的旧卡片样式。
+   ========================================================================== */
+.crisp-launchpad-view .launchpad-wrapper { gap: 20px; }
+.crisp-launchpad-view .launchpad-page { gap: 20px; }
+
+.crisp-launchpad-view .launchpad-card,
+body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpad-view .launchpad-card {
+  background: color-mix(in srgb, var(--text-normal) 4%, var(--pulse-ui-surface));
+  border: 1px solid var(--pulse-ui-border);
+  border-radius: 20px;
+  box-shadow: none;
+  padding: 6px;
+  gap: 0;
+  min-width: 0;
+}
+.crisp-launchpad-view .launchpad-card-header {
+  padding: 12px 14px 14px;
+  min-width: 0;
+}
+.crisp-launchpad-view .launchpad-card-header::after { display: none; }
+.crisp-launchpad-view .launchpad-card-title { gap: 12px; font-size: 15px; letter-spacing: -0.01em; }
+.crisp-launchpad-view .launchpad-card-title > .launchpad-inline-icon:first-child {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
+  color: var(--pulse-ui-accent);
+}
+.crisp-launchpad-view .launchpad-card-title > .launchpad-inline-icon:first-child svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+.crisp-launchpad-view .launchpad-card-title .launchpad-badge,
+.crisp-launchpad-view .launchpad-card-header > .launchpad-badge {
+  font-family: var(--font-monospace);
+  font-size: 11.5px;
+  border: 0;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
+  color: var(--text-muted);
+}
+.crisp-launchpad-view .launchpad-card-title .launchpad-badge.is-warning {
+  color: var(--color-orange);
+  background: color-mix(in srgb, var(--color-orange) 14%, transparent);
+}
+
+.crisp-launchpad-view .launchpad-inset {
+  background: var(--pulse-ui-surface);
+  border-radius: 15px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px color-mix(in srgb, var(--text-normal) 5%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  flex: 1;
+}
+/* 内层面板里的列表不再套第三层边框。 */
+.crisp-launchpad-view .launchpad-inset .launchpad-breakdown-card {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+}
+.crisp-launchpad-view .launchpad-inset .launchpad-breakdown-row { padding: 10px 6px; }
+.crisp-launchpad-view .launchpad-action-status:empty { display: none; }
+
+/* 顶部标题：不再是卡片，只留标题、内核状态和日期。 */
+.crisp-launchpad-view .launchpad-hero { padding: 4px 4px 0; }
+.crisp-launchpad-view .launchpad-hero-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.crisp-launchpad-view .launchpad-hero .launchpad-hero-icon {
+  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
+  border: 0;
+  box-shadow: none;
+}
+.crisp-launchpad-view .launchpad-hero .launchpad-date-badge { border-left: 0; padding-left: 0; }
+
+/* 分段控件：页签和行动台共用。 */
+.crisp-launchpad-view .launchpad-tabs,
+.crisp-launchpad-view .launchpad-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 3px;
+  margin: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text-normal) 5%, transparent);
+  max-width: 100%;
+}
+.crisp-launchpad-view button.launchpad-tab,
+.crisp-launchpad-view button.launchpad-seg-btn {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  color: var(--text-muted) !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 6px 12px !important;
+  transition: color var(--crisp-dur-fast) var(--crisp-ease) !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.crisp-launchpad-view button.launchpad-tab:hover,
+.crisp-launchpad-view button.launchpad-seg-btn:hover { color: var(--text-normal) !important; }
+.crisp-launchpad-view button.launchpad-tab.is-active,
+.crisp-launchpad-view button.launchpad-seg-btn[aria-selected="true"] {
+  background: var(--pulse-ui-surface) !important;
+  color: var(--text-normal) !important;
+  border-color: var(--pulse-ui-border) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
+}
+.crisp-launchpad-view .launchpad-seg-count {
+  font-family: var(--font-monospace);
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.crisp-launchpad-view button.launchpad-seg-btn[aria-selected="true"] .launchpad-seg-count { color: var(--pulse-ui-accent); }
+.crisp-launchpad-view .launchpad-action-seg { margin-bottom: 2px; }
+.crisp-launchpad-view button.launchpad-seg-btn.is-zero:not([aria-selected="true"]) { color: var(--text-faint) !important; }
+.crisp-launchpad-view button.launchpad-seg-btn:focus-visible,
+.crisp-launchpad-view .launchpad-today-item:focus-visible,
+.crisp-launchpad-view .launchpad-judge-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--lp-accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* 今天一行：一条细分隔的数据带，每项可点。 */
+.crisp-launchpad-view .launchpad-today-strip {
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--pulse-ui-surface);
+  border: 1px solid var(--pulse-ui-border);
+  border-radius: 16px;
+  padding: 6px;
+}
+.crisp-launchpad-view .launchpad-today-item {
+  flex: 1 1 0;
+  min-width: 96px;
+  padding: 12px 14px;
+  border-radius: 11px;
+  cursor: pointer;
+  position: relative;
+  transition: background-color var(--crisp-dur-fast) var(--crisp-ease);
+}
+.crisp-launchpad-view .launchpad-today-item + .launchpad-today-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 1px;
+  background: var(--pulse-ui-border);
+}
+.crisp-launchpad-view .launchpad-today-item:hover { background: var(--background-modifier-hover); }
+.crisp-launchpad-view .launchpad-today-item:hover::before,
+.crisp-launchpad-view .launchpad-today-item:hover + .launchpad-today-item::before { opacity: 0; }
+.crisp-launchpad-view .launchpad-today-value {
+  font-family: var(--font-monospace);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+.crisp-launchpad-view .launchpad-today-item.is-warning .launchpad-today-value { color: var(--color-orange); }
+.crisp-launchpad-view .launchpad-today-label {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* 待你判断：一行一类，数量在前，点进复盘页。 */
+.crisp-launchpad-view .launchpad-judge-list { display: flex; flex-direction: column; margin: -6px -8px; }
+.crisp-launchpad-view .launchpad-judge-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color var(--crisp-dur-fast) var(--crisp-ease);
+}
+.crisp-launchpad-view .launchpad-judge-row + .launchpad-judge-row { border-top: 1px solid color-mix(in srgb, var(--pulse-ui-border) 60%, transparent); }
+.crisp-launchpad-view .launchpad-judge-row:hover { background: var(--background-modifier-hover); }
+.crisp-launchpad-view .launchpad-judge-count {
+  font-family: var(--font-monospace);
+  font-size: 17px;
+  min-width: 3ch;
+  text-align: right;
+  color: var(--text-normal);
+}
+.crisp-launchpad-view .launchpad-judge-label { flex: 1; min-width: 0; font-size: 13.5px; color: var(--text-normal); }
+.crisp-launchpad-view .launchpad-judge-go { color: var(--text-faint); display: inline-flex; }
+.crisp-launchpad-view .launchpad-judge-go svg { width: 16px; height: 16px; }
+
+@container launchpad (max-width: 560px) {
+  .crisp-launchpad-view .launchpad-inset { padding: 14px 12px; }
+  .crisp-launchpad-view .launchpad-card-header { padding: 10px 10px 12px; }
+  .crisp-launchpad-view .launchpad-today-item { flex-basis: 33%; padding: 10px; }
+  .crisp-launchpad-view .launchpad-today-item:nth-child(3n + 1)::before { display: none; }
+  .crisp-launchpad-view .launchpad-today-value { font-size: 18px; }
 }

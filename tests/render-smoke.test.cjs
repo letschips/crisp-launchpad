@@ -243,7 +243,7 @@ function makeAdapter(store) {
   };
 }
 
-function makeApp({ desktop = false, pages = makePages(), snapshots = makeSnapshots(), tempoTasks = TEMPO_TASKS } = {}) {
+function makeApp({ desktop = false, pages = makePages(), snapshots = makeSnapshots(), tempoTasks = TEMPO_TASKS, extraPlugins = {} } = {}) {
   const files = pages.map((p) => p.file);
   const byPath = new Map(pages.map((p) => [p.path, p]));
   const store = {
@@ -279,21 +279,22 @@ function makeApp({ desktop = false, pages = makePages(), snapshots = makeSnapsho
       detachLeavesOfType: () => {},
       getActiveFile: () => null,
       onLayoutReady: () => {},
-      on: () => ({}),
+      _events: [],
+      on(name) { this._events.push(name); return {}; },
     },
     commands: { executeCommandById: () => true, findCommand: () => ({}) },
     plugins: {
-      enabledPlugins: new Set(["crisp-dsh", "crisp-launchpad", ...(tempoTasks ? ["crisp-tempo"] : [])]),
-      plugins: tempoTasks ? { "crisp-tempo": fakeTempo(tempoTasks) } : {},
+      enabledPlugins: new Set(["crisp-dsh", "crisp-launchpad", ...(tempoTasks ? ["crisp-tempo"] : []), ...Object.keys(extraPlugins)]),
+      plugins: { ...(tempoTasks ? { "crisp-tempo": fakeTempo(tempoTasks) } : {}), ...extraPlugins },
     },
     internalPlugins: { getEnabledPluginById: () => null },
   };
 }
 
-async function makePlugin({ desktop = false, mobile = false, pages, snapshots, tempoTasks } = {}) {
+async function makePlugin({ desktop = false, mobile = false, pages, snapshots, tempoTasks, extraPlugins } = {}) {
   mock.Platform.isMobile = mobile;
   const plugin = new api();
-  plugin.app = makeApp({ desktop, pages, snapshots, tempoTasks });
+  plugin.app = makeApp({ desktop, pages, snapshots, tempoTasks, extraPlugins });
   plugin.settings = { openOnStartup: false, allowSnapshotRefresh: true, autoRouteEnabled: false, hasCompletedOnboarding: true };
   await plugin.onload();
   return plugin;
@@ -454,7 +455,8 @@ test("实时行动链路：相同数量的旧快照不能覆盖 Tempo 的标题�
   const text = view.contentEl.allText();
   assert.ok(text.includes("新标题"));
   assert.ok(!text.includes("旧标题"));
-  assert.ok(text.includes("实时活数据"));
+  // 0.6.0：读的是 Tempo 实时数据时不再挂「实时活数据」徽章，只在退回快照时提示。
+  assert.ok(!text.includes("实时活数据"));
 });
 
 // Failure mode: the load badge must follow live Tempo counts (not stale snapshot
@@ -497,4 +499,123 @@ test("没有 Tempo 时行动台显示提示，启动台和面板都不抛异常"
   assert.ok(text.includes("未连接 Tempo"));
   const panel = await renderView(plugin, "crisp-launchpad-panel-view");
   assert.ok(panel.view.contentEl.children[0], "面板应能渲染");
+});
+
+/* ==========================================================================
+   0.6.0 第一期：卡片体系、今天一行、行动台分段、中文状态
+   ========================================================================== */
+
+function findAll(el, predicate, out = []) {
+  if (predicate(el)) out.push(el);
+  for (const child of el.children || []) findAll(child, predicate, out);
+  return out;
+}
+
+function fakePulse(snapshot) {
+  return {
+    pulseStateApiVersion: 1,
+    async getTodaySnapshot() {
+      if (snapshot instanceof Error) throw snapshot;
+      return snapshot;
+    },
+  };
+}
+
+function tempoWithCompleted(count) {
+  return { ...fakeTempo(TEMPO_TASKS), async getCompletedToday() { return { date: "2026-09-20", count }; } };
+}
+
+function todayStrip(view) {
+  return findAll(view.contentEl, (el) => el.classes?.has("launchpad-today-strip"))[0] || null;
+}
+
+function stripLabels(strip) {
+  return findAll(strip, (el) => el.classes?.has("launchpad-today-label")).map((el) => el.textContent);
+}
+
+test("今天一行：Pulse 和 Tempo 都在时显示分数、连续、速记待处理和今天完成", async () => {
+  const plugin = await makePlugin({
+    desktop: true,
+    extraPlugins: {
+      "crisp-pulse": fakePulse({ apiVersion: 1, date: "2026-09-20", score: 42.5, streak: 3, active: true, memos: { today: 4, pending: 2 } }),
+      "crisp-tempo": tempoWithCompleted(5),
+    },
+  });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  const strip = todayStrip(view);
+  assert.ok(strip, "今天页应有今天一行");
+  const labels = stripLabels(strip);
+  for (const label of ["行动", "已完成", "贡献分", "连续", "速记待处理", "待整理"]) {
+    assert.ok(labels.includes(label), `今天一行缺少「${label}」：${labels.join("、")}`);
+  }
+  const text = strip.allText();
+  assert.ok(text.includes("42.5") && text.includes("5") && text.includes("2"), text);
+});
+
+// Failure mode: a missing or broken neighbour must not show up as a zero, and must not break the page.
+test("今天一行：没有 Pulse、Pulse 抛错或速记读不到时不显示对应项，也不当成 0", async () => {
+  const cases = [
+    ["无 Pulse", {}],
+    ["Pulse 抛错", { "crisp-pulse": fakePulse(new Error("boom")) }],
+    ["速记为 null", { "crisp-pulse": fakePulse({ apiVersion: 1, score: 1, streak: 0, memos: null }) }],
+  ];
+  for (const [name, extraPlugins] of cases) {
+    const plugin = await makePlugin({ desktop: true, extraPlugins });
+    const { view } = await renderView(plugin, "crisp-launchpad-view");
+    const labels = stripLabels(todayStrip(view));
+    assert.ok(!labels.includes("速记待处理"), `${name}：不应显示速记待处理`);
+    if (name !== "速记为 null") assert.ok(!labels.includes("贡献分"), `${name}：不应显示贡献分`);
+    assert.ok(labels.includes("行动"), `${name}：Tempo 在时仍应显示行动`);
+    assert.ok(!labels.includes("已完成"), `${name}：Tempo 没有 getCompletedToday 时不显示已完成`);
+  }
+  const noTempo = await makePlugin({ desktop: true, tempoTasks: null });
+  const labels = stripLabels(todayStrip((await renderView(noTempo, "crisp-launchpad-view")).view));
+  assert.ok(!labels.includes("行动"), "没有 Tempo 时不显示行动数");
+});
+
+test("卡片体系：每张卡片的内容都在内层面板里，卡片头之外不留散落元素", async () => {
+  const plugin = await makePlugin({ desktop: true });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  const cards = findAll(view.contentEl, (el) => el.classes?.has("launchpad-card"));
+  assert.ok(cards.length >= 10, `卡片数偏少：${cards.length}`);
+  for (const card of cards) {
+    const stray = card.children.filter((child) => !child.classes.has("launchpad-card-header") && !child.classes.has("launchpad-inset"));
+    assert.equal(stray.length, 0, `卡片里有散落元素：${[...stray[0]?.classes || []].join(".")} ${card.allText().slice(0, 40)}`);
+  }
+});
+
+test("中文状态：内容状态和系统问题级别在界面上显示中文", async () => {
+  assert.equal(api.contentStatusLabel("draft"), "草稿");
+  assert.equal(api.contentStatusLabel("parked"), "搁置");
+  assert.equal(api.contentStatusLabel("Published"), "已发布");
+  assert.equal(api.contentStatusLabel("deprecated"), "已废弃");
+  assert.equal(api.contentStatusLabel("custom"), "custom");
+  const plugin = await makePlugin({ desktop: true });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  const raw = findAll(view.contentEl, (el) => ["published", "draft", "reviewing", "blocking", "operational", "informational"].includes(el.textContent.trim()));
+  assert.equal(raw.length, 0, `界面仍有英文状态：${raw.map((el) => el.textContent).join("、")}`);
+  const text = view.contentEl.allText();
+  assert.ok(!/\b(blocking|operational|informational)\b/.test(text), "系统级别不应显示英文");
+});
+
+test("行动台分段：默认看全部，点「等待」只列等待中的行动，数量和 Tempo 分桶一致", async () => {
+  const plugin = await makePlugin({ desktop: true });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  const seg = findAll(view.contentEl, (el) => el.classes?.has("launchpad-action-seg"))[0];
+  assert.ok(seg, "行动台应有分段控件");
+  const buttons = seg.children;
+  assert.equal(buttons[0].attrs["aria-selected"], "true", "默认选中「全部」");
+  const waiting = buttons.find((button) => button.allText().startsWith("等待"));
+  assert.ok(waiting && waiting.allText().includes("1"), `等待的数量应为 1：${waiting?.allText()}`);
+  for (const click of waiting.listeners.click || []) click();
+  assert.equal(waiting.attrs["aria-selected"], "true");
+  const card = findAll(view.contentEl, (el) => el.classes?.has("launchpad-action-card"))[0];
+  const text = findAll(card, (el) => el.classes?.has("launchpad-action-body-wrap"))[0].allText();
+  assert.ok(text.includes("等回复") && !text.includes("今天要做的"), text);
+  assert.equal(findAll(view.contentEl, (el) => el.classes?.has("launchpad-action-counts")).length, 0, "旧的六格计数应移除");
+});
+
+test("Pulse 状态变化时刷新视图", async () => {
+  const plugin = await makePlugin({ desktop: true });
+  assert.ok(plugin.app.workspace._events.includes("crisp-pulse:state"), "应监听 crisp-pulse:state");
 });
