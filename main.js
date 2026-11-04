@@ -137,6 +137,8 @@ const FINDING_CODE_TARGET = {
 const FINDING_SEVERITY_ORDER = { blocking: 0, error: 0, operational: 1, informational: 2 };
 const FINDING_GROUP_PREVIEW = 20;
 const PULSE_REFRESH_DEBOUNCE_MS = 1500;
+/* 速记「待处理」只看近 7 天：更早还没去处的速记当成记录，在 Pulse 里照样能看、能搜。 */
+const MEMO_BACKLOG_DAYS = 7;
 const PAGES = [
   { id: "today", name: "今天" },
   { id: "create", name: "创作" },
@@ -751,7 +753,8 @@ function inboxTriageItems(pages, limit = 20) {
       (page) =>
         page &&
         String(page.path || "").includes("raw/inbox") &&
-        !isSettledInboxStatus(page.routing_status),
+        !isSettledInboxStatus(page.routing_status) &&
+        !isPulseMemoCapture(page),
     )
     .sort((left, right) => (right.mtime || 0) - (left.mtime || 0))
     .slice(0, Math.max(0, Number(limit) || 0));
@@ -950,6 +953,7 @@ function pageRecord(app, file) {
     platform: textOr(frontmatter.platform),
     knowledge_writeback: textOr(frontmatter.knowledge_writeback),
     routing_status: textOr(frontmatter.routing_status),
+    capture_type: textOr(frontmatter.capture_type),
     content_id: textOr(frontmatter.content_id),
     published_at: textOr(frontmatter.published_at),
     publication_status: textOr(frontmatter.publication_status),
@@ -964,12 +968,18 @@ function collectPages(app) {
     .map((file) => pageRecord(app, file));
 }
 
+function isPulseMemoCapture(page) {
+  return textOr(page?.capture_type || page?.frontmatter?.capture_type).toLowerCase() === "pulse-memo";
+}
+
 function summarizePages(pages, now = new Date()) {
   const knowledge = pages.filter((page) => KNOWLEDGE_TYPES.includes(page.type));
   const raw = pages.filter((page) => page.type === "raw");
   const outputs = pages.filter((page) => page.type === "output");
+  /* Crisp Pulse 的速记日文件不算：一个文件里有很多条速记，每条的去处由 Pulse 判断，
+     今天一行和「待你判断」读 Pulse 的近 7 天没去处的条数。 */
   const inbox = pages.filter(
-    (page) => page.path.includes("raw/inbox") && !isSettledInboxStatus(page.routing_status),
+    (page) => page.path.includes("raw/inbox") && !isSettledInboxStatus(page.routing_status) && !isPulseMemoCapture(page),
   );
   const articles = pages.filter(
     (page) => page.content_role === "article" && page.path.includes("content-projects"),
@@ -2101,7 +2111,13 @@ class LaunchpadRenderer {
       const openPulse = () => this.plugin.runCrispCommand("crisp-pulse:open-crisp-pulse-view", "Crisp Pulse");
       items.push({ label: "贡献分", value: formatScore(pulse.score), hint: "Crisp Pulse 今天的贡献分", open: openPulse });
       items.push({ label: "连续", value: `${Number(pulse.streak) || 0} 天`, hint: "连续有产出的天数", open: openPulse });
-      if (pulse.memos && Number.isFinite(Number(pulse.memos.pending))) {
+      const backlog = signals.memoBacklog;
+      if (backlog) {
+        items.push({
+          label: "速记待处理", value: String(Number(backlog.pending)), hint: `近 ${backlog.days} 天还没转成任务或笔记的速记`,
+          open: () => this.plugin.openMemoBacklog(backlog),
+        });
+      } else if (pulse.memos && Number.isFinite(Number(pulse.memos.pending))) {
         items.push({
           label: "速记待处理", value: String(Number(pulse.memos.pending)), hint: "今天记下、还没转成任务或笔记的速记",
           open: () => this.plugin.runCrispCommand("crisp-pulse:open-memo-view", "Crisp Pulse 速记"),
@@ -2159,10 +2175,13 @@ class LaunchpadRenderer {
       const label = reviewFindingCategory(finding);
       writebackCounts.set(label, (writebackCounts.get(label) || 0) + 1);
     }
+    const toReview = () => this.showTab("review");
+    const backlog = this.snapshots.signals?.memoBacklog;
     const groups = [
-      ...[...writebackCounts.entries()].map(([label, count]) => [count, label]),
-      [queues.reviewingProjects.length, "内容待复盘"],
-      [queues.staleInbox.length, STALE_INBOX_LABEL],
+      ...[...writebackCounts.entries()].map(([label, count]) => [count, label, toReview]),
+      [queues.reviewingProjects.length, "内容待复盘", toReview],
+      [queues.staleInbox.length, STALE_INBOX_LABEL, toReview],
+      ...(backlog ? [[Number(backlog.pending), `近 ${backlog.days} 天的速记还没去处`, () => this.plugin.openMemoBacklog(backlog)]] : []),
     ];
     const pending = groups.filter(([count]) => count > 0);
     const card = parent.createDiv({ cls: "launchpad-card" });
@@ -2177,12 +2196,12 @@ class LaunchpadRenderer {
       return;
     }
     const list = card.createDiv({ cls: "launchpad-judge-list" });
-    for (const [count, label] of pending.sort((a, b) => b[0] - a[0])) {
+    for (const [count, label, open] of pending.sort((a, b) => b[0] - a[0])) {
       const row = list.createDiv({ cls: "launchpad-judge-row" });
       row.createSpan({ cls: "launchpad-judge-count", text: String(count) });
       row.createSpan({ cls: "launchpad-judge-label", text: label });
       addIcon(row, "chevron-right", "launchpad-judge-go");
-      makeClickable(row, () => this.showTab("review"), `${label} ${count} 项：去复盘页处理`);
+      makeClickable(row, open, `${label} ${count} 项`);
     }
   }
 
@@ -4604,7 +4623,7 @@ class CrispLaunchpadPlugin extends Plugin {
 
   /* 今天一行用的邻居数据，只读。读不到的项保持 null，界面据此不显示。 */
   async readTodaySignals() {
-    const signals = { pulse: null, completed: null, recent: null };
+    const signals = { pulse: null, completed: null, recent: null, memoBacklog: null };
     const pulse = this.app.plugins?.enabledPlugins?.has(PULSE_PLUGIN_ID) ? this.app.plugins?.plugins?.[PULSE_PLUGIN_ID] : null;
     if (pulse && typeof pulse.getTodaySnapshot === "function") {
       try {
@@ -4612,6 +4631,14 @@ class CrispLaunchpadPlugin extends Plugin {
         if (snapshot && Number.isFinite(Number(snapshot.score))) signals.pulse = snapshot;
       } catch (error) {
         console.warn("[Crisp Launchpad] reading Crisp Pulse failed:", error);
+      }
+    }
+    if (pulse && typeof pulse.getMemoBacklog === "function") {
+      try {
+        const backlog = await pulse.getMemoBacklog(MEMO_BACKLOG_DAYS);
+        if (backlog && Number.isFinite(Number(backlog.pending))) signals.memoBacklog = backlog;
+      } catch (error) {
+        console.warn("[Crisp Launchpad] reading Crisp Pulse memos failed:", error);
       }
     }
     if (pulse && typeof pulse.getRecentDays === "function") {
@@ -4633,6 +4660,20 @@ class CrispLaunchpadPlugin extends Plugin {
       }
     }
     return signals;
+  }
+
+  /* 打开 Pulse 速记面板，只看这段时间里还没去处的速记。 */
+  async openMemoBacklog(backlog) {
+    const pulse = this.app.plugins?.plugins?.[PULSE_PLUGIN_ID];
+    if (typeof pulse?.openMemoQuery === "function") {
+      try {
+        await pulse.openMemoQuery({ from: backlog.from, to: backlog.to, converted: false });
+        return;
+      } catch (error) {
+        console.warn("[Crisp Launchpad] opening Crisp Pulse memos failed:", error);
+      }
+    }
+    this.runCrispCommand("crisp-pulse:open-memo-view", "Crisp Pulse 速记");
   }
 
   runCrispCommand(command, name) {

@@ -789,3 +789,38 @@ test("系统页：问题按类型归组，阻塞在前且默认展开，已知�
   assert.ok(rows.length && !rows[0].allText().includes("Topics/self-media/outputs/content/published/公众号/待回写甲.md Topics"), "路径不重复");
 });
 const STALE_LABEL = "超过 3 天未整理";
+
+/* ==========================================================================
+   速记归 Pulse：速记日文件不算待整理；今天一行和待你判断读近 7 天没去处的速记
+   ========================================================================== */
+
+function pulseWithBacklog(calls) {
+  return {
+    pulseStateApiVersion: 1,
+    async getTodaySnapshot() { return { apiVersion: 1, score: 1, streak: 1, memos: { today: 1, pending: 1 } }; },
+    async getMemoBacklog(days) { return { apiVersion: 1, days, from: "2026-09-14", to: "2026-09-20", total: 9, pending: 6 }; },
+    async openMemoQuery(query) { calls.push(query); },
+  };
+}
+
+test("速记：Pulse 速记日文件不算待整理", async () => {
+  const pages = [...makePages(), page("Topics/self-media/raw/inbox/scratch/2026-09-01 速记.md", { type: "raw", capture_type: "pulse-memo" }, Date.now() - 20 * DAY)];
+  const summary = api.summarizePages(pages);
+  assert.ok(!summary.inbox.some((p) => p.path.endsWith("速记.md")), "速记日文件不应进待整理");
+  assert.equal(summary.inbox.length, api.summarizePages(makePages()).inbox.length);
+  assert.ok(!api.inboxTriageItems(pages, 99).some((p) => p.path.endsWith("速记.md")), "侧栏待整理也不算速记日文件");
+});
+
+test("速记：今天一行和待你判断显示近 7 天没去处的速记，点开 Pulse 速记面板并带上筛选", async () => {
+  const calls = [];
+  const plugin = await makePlugin({ desktop: true, extraPlugins: { "crisp-pulse": pulseWithBacklog(calls) } });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  await openTab(view, "今天");
+  const item = findAll(view.contentEl, (el) => el.classes?.has("launchpad-today-item") && el.allText().endsWith("速记待处理"))[0];
+  assert.equal(item.children[0].textContent, "6");
+  for (const click of item.listeners.click || []) click();
+  const row = findAll(view.contentEl, (el) => el.classes?.has("launchpad-judge-row") && el.allText().includes("速记"))[0];
+  assert.ok(row && row.allText().includes("6"), "待你判断应有速记一行");
+  for (const click of row.listeners.click || []) click();
+  assert.deepEqual(calls, [{ from: "2026-09-14", to: "2026-09-20", converted: false }, { from: "2026-09-14", to: "2026-09-20", converted: false }]);
+});

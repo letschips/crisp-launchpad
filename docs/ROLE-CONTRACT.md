@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | Launchpad | 系统状态、内容流水线、知识、复盘、待整理、插件入口 | 主体 |
 | Tempo | 行动的唯一来源 | 读 `getActionOverview()`；材料转行动走 `createTaskFromSource()`；「新建行动」用 `openQuickAddModal()` 在启动台原地弹出 Tempo 的新建弹窗（Tempo 0.14.0+，旧版退回快速新建命令）；点开走 `revealTask()`。完成、改期、删除只在 Tempo 里做 |
-| Pulse | 速记 | 速记入口打开 Pulse 速记；Pulse 没开时用 Launchpad 自带速记（只写 `raw/inbox`） |
+| Pulse | 速记（每条速记的去处） | 速记入口打开 Pulse 速记；Pulse 没开时用 Launchpad 自带速记（只写 `raw/inbox`）。Pulse 的速记日文件（`capture_type: pulse-memo`）不算「待整理」；「速记待处理」读 `getMemoBacklog(7)`：近 7 天还没转成任务或笔记的条数，点开 `openMemoQuery` 只看这些（Pulse 1.43.0+） |
 | 其他 Crisp 插件 | 各自的功能 | 只放入口，只显示已启用的 |
 
 ## 没有 Tempo 时
@@ -30,3 +30,7 @@ Tempo 的任务变了会发 `crisp-tempo:state`：视图刷新；事件桥开着
 ## 命令行快照
 
 `Sidecar/tools/action-snapshot/actions_snapshot.py` 只读 Tempo 的 `data.json`，分桶规则和 Tempo 的 `getActionOverview()` 一致；连不上 Tempo 时输出空快照并在 `warnings` 里说明。
+
+## 速记的口径（2026-11-04）
+
+一个速记日文件里有很多条速记，每条各有去处（转任务、转笔记），所以按文件算「待整理」不对。ANKS 的 vault_sweeper 和 Launchpad 的待整理都不算 `capture_type: pulse-memo` 的文件；还没去处的速记由 Pulse 报告，只看近 7 天，更早的当成记录，不再提醒。
