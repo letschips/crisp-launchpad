@@ -7,7 +7,7 @@
 | 插件 | 负责 | Launchpad 的做法 |
 | --- | --- | --- |
 | Launchpad | 系统状态、内容流水线、知识、复盘、待整理、插件入口 | 主体 |
-| Tempo | 行动的唯一来源 | 读 `getActionOverview()`；新建走 `createTaskFromSource()` 或 Tempo 的快速新建；点开走 `revealTask()`。完成、改期、删除只在 Tempo 里做 |
+| Tempo | 行动的唯一来源 | 读 `getActionOverview()`；材料转行动走 `createTaskFromSource()`；「新建行动」用 `openQuickAddModal()` 在启动台原地弹出 Tempo 的新建弹窗（Tempo 0.14.0+，旧版退回快速新建命令）；点开走 `revealTask()`。完成、改期、删除只在 Tempo 里做 |
 | Pulse | 速记 | 速记入口打开 Pulse 速记；Pulse 没开时用 Launchpad 自带速记（只写 `raw/inbox`） |
 | 其他 Crisp 插件 | 各自的功能 | 只放入口，只显示已启用的 |
 
