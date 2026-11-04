@@ -85,18 +85,9 @@ test("page summary keeps ANKS object layers separate", () => {
   assert.equal(summary.articles.length, 1);
 });
 
-test("heat levels and snapshot age are deterministic", () => {
-  assert.deepEqual([0, 1, 3, 8, 15, 30].map(launchpad.heatLevel), [0, 1, 2, 3, 4, 5]);
+test("snapshot age is deterministic", () => {
   assert.equal(launchpad.snapshotAgeLabel(null), "时间未知");
   assert.equal(launchpad.snapshotAgeLabel(0.5), "刚刚检查");
-});
-
-test("rhythm range only accepts supported week windows", () => {
-  assert.equal(launchpad.normalizeRhythmWeeks("4"), 4);
-  assert.equal(launchpad.normalizeRhythmWeeks("52"), 52);
-  assert.equal(launchpad.normalizeRhythmWeeks("17"), 13);
-  assert.equal(launchpad.normalizeRhythmWeeks("bad"), 13);
-  assert.equal(launchpad.TOTAL_HEATMAP_WEEKS, 53);
 });
 
 test("quick capture note carries ANKS raw inbox metadata and CAP stable id", () => {
@@ -831,38 +822,6 @@ test("打磨: 待整理口径与 ANKS sweeper 一致（processed / archived / do
     launchpad.inboxTriageItems(pages).map((page) => page.path),
     ["Topics/x/raw/inbox/c.md"],
   );
-});
-
-test("节奏: 点某天能列出当天改动的文件（热力图的时间维度索引）", () => {
-  const view = { app: { plugins: { enabledPlugins: new Set() } }, plugin: {}, contentEl: {} };
-  const pages = [
-    {
-      path: "Topics/x/knowledge/a.md",
-      name: "a",
-      title: "A",
-      type: "knowledge",
-      mtime: Date.parse("2026-09-20T10:00:00+08:00"),
-    },
-    {
-      path: "Topics/x/raw/inbox/b.md",
-      name: "b",
-      title: "B",
-      type: "raw",
-      mtime: Date.parse("2026-09-20T09:00:00+08:00"),
-    },
-    {
-      path: "Topics/x/outputs/c.md",
-      name: "c",
-      title: "C",
-      type: "output",
-      mtime: Date.parse("2026-09-19T12:00:00+08:00"),
-    },
-  ];
-  const renderer = new launchpad.LaunchpadRenderer(view, {}, {}, pages);
-  const day = renderer.pagesChangedOn("2026-09-20");
-  assert.deepEqual(day.map((page) => page.title), ["A", "B"], "同一天应按改动时间倒序");
-  assert.equal(renderer.pagesChangedOn("2026-09-19").length, 1);
-  assert.equal(renderer.pagesChangedOn("2026-09-18").length, 0, "没有改动的日子要返回空");
 });
 
 test("节奏: 通用文件名在列表里用父目录限定，不再一屏都是 project", () => {

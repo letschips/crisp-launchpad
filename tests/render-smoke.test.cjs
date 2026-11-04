@@ -714,3 +714,78 @@ test("打开启动台：原标签还在恢复中时复用它，不新开第二�
   assert.equal(created, 0, "不应新开标签");
   assert.equal(revealed, restoring, "应显示原来的标签");
 });
+
+/* ==========================================================================
+   0.8.0 第三期：复盘页节奏读 Pulse、系统问题按类型归组
+   ========================================================================== */
+
+function pulseWithDays() {
+  return {
+    pulseStateApiVersion: 1,
+    async getTodaySnapshot() { return { apiVersion: 1, score: 3, streak: 2, memos: null }; },
+    async getRecentDays(days) {
+      const out = [];
+      for (let i = 0; i < days; i++) {
+        const recorded = i % 3 !== 0;
+        out.push({ date: `2026-08-${String((i % 28) + 1).padStart(2, "0")}`, recorded, active: recorded && i % 2 === 0, score: recorded ? i : null, focusMinutes: recorded ? 30 : null, tasksCompleted: recorded ? 1 : null });
+      }
+      return { apiVersion: 1, scope: "reliable", streak: 2, days: out };
+    },
+  };
+}
+
+async function openTab(view, name) {
+  const tabs = findAll(view.contentEl, (el) => el.classes?.has("launchpad-tabs"))[0];
+  const button = tabs.children.find((b) => b.textContent === name);
+  for (const click of button.listeners.click || []) click();
+}
+
+test("复盘页：旧的文件修改热力图去掉，改为 Pulse 每日节奏；未记录的日子是虚柱；可切 7/30/90 天", async () => {
+  const plugin = await makePlugin({ desktop: true, extraPlugins: { "crisp-pulse": pulseWithDays() } });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  assert.equal(findAll(view.contentEl, (el) => el.classes?.has("launchpad-heat-cell")).length, 0, "旧热力图应移除");
+  assert.ok(!view.contentEl.allText().includes("系统节奏"));
+  const card = findAll(view.contentEl, (el) => el.classes?.has("launchpad-pulse-rhythm"))[0];
+  assert.ok(card, "应有近期节奏卡片");
+  const bars = () => findAll(card, (el) => el.classes?.has("launchpad-pulse-bar"));
+  assert.equal(bars().length, 30, "默认 30 天");
+  assert.equal(bars().filter((b) => b.classes.has("is-missing")).length, 10, "每 3 天 1 天未记录");
+  const text = card.allText();
+  assert.ok(text.includes("10 / 20") && text.includes("2 天"), text);
+  const seg = findAll(card, (el) => el.classes?.has("launchpad-seg"))[0];
+  const seven = seg.children.find((b) => b.allText().startsWith("7"));
+  for (const click of seven.listeners.click || []) click();
+  assert.equal(bars().length, 7);
+});
+
+test("复盘页：没有 Pulse 或 Pulse 太旧时只显示提示，不画假数据", async () => {
+  for (const extraPlugins of [{}, { "crisp-pulse": { async getTodaySnapshot() { return { score: 1, streak: 0 }; } } }]) {
+    const plugin = await makePlugin({ desktop: true, extraPlugins });
+    const { view } = await renderView(plugin, "crisp-launchpad-view");
+    const card = findAll(view.contentEl, (el) => el.classes?.has("launchpad-pulse-rhythm"))[0];
+    assert.ok(card, "卡片仍在");
+    assert.equal(findAll(card, (el) => el.classes?.has("launchpad-pulse-bar")).length, 0);
+    assert.ok(card.allText().includes("Crisp Pulse"), card.allText());
+  }
+});
+
+test("系统页：问题按类型归组，阻塞在前且默认展开，已知代码显示中文，有去处的组带入口", async () => {
+  const plugin = await makePlugin({ desktop: true });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  const groups = findAll(view.contentEl, (el) => el.classes?.has("launchpad-finding-group"));
+  assert.equal(groups.length, 3, "CONTRACT_ERROR / PENDING_WRITEBACK / STALE_INBOX 三组");
+  const head = (g) => findAll(g, (el) => el.classes?.has("launchpad-finding-group-head"))[0].allText();
+  assert.ok(head(groups[0]).includes("CONTRACT_ERROR") && head(groups[0]).includes("阻塞"), head(groups[0]));
+  assert.ok(groups[0].classes.has("is-open"), "阻塞组默认展开");
+  assert.ok(head(groups[1]).includes("待回写") && head(groups[1]).includes("2"), head(groups[1]));
+  assert.ok(!groups[1].classes.has("is-open"), "待办组默认收起");
+  const stale = groups.find((g) => head(g).includes(STALE_LABEL));
+  const go = findAll(stale, (el) => el.tagName === "button" && el.textContent === "去整理")[0];
+  assert.ok(go, "超过 3 天未整理组应有「去整理」");
+  for (const click of go.listeners.click || []) click({ stopPropagation() {} });
+  const active = findAll(view.contentEl, (el) => el.classes?.has("launchpad-tab") && el.classes.has("is-active"))[0];
+  assert.equal(active.textContent, "知识");
+  const rows = findAll(groups[1], (el) => el.classes?.has("launchpad-finding-row"));
+  assert.ok(rows.length && !rows[0].allText().includes("Topics/self-media/outputs/content/published/公众号/待回写甲.md Topics"), "路径不重复");
+});
+const STALE_LABEL = "超过 3 天未整理";

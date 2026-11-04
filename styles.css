@@ -402,47 +402,8 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   flex-shrink: 0;
 }
 
-.crisp-launchpad-view .launchpad-rhythm-header {
-  flex-wrap: wrap;
-}
-
 .crisp-launchpad-view .launchpad-pipeline-header {
   flex-wrap: wrap;
-}
-
-.crisp-launchpad-view .launchpad-rhythm-ranges {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid var(--pulse-ui-border);
-  border-radius: 9px;
-  background: var(--pulse-ui-soft);
-}
-
-.crisp-launchpad-view button.launchpad-range-btn {
-  min-height: 0 !important;
-  height: auto !important;
-  padding: 4px 9px !important;
-  border: none !important;
-  border-radius: 6px !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  font-weight: 500 !important;
-  cursor: pointer !important;
-  transition: background-color 0.16s ease, color 0.16s ease !important;
-}
-
-.crisp-launchpad-view button.launchpad-range-btn:hover {
-  color: var(--text-normal) !important;
-  background: var(--background-modifier-hover) !important;
-}
-
-.crisp-launchpad-view button.launchpad-range-btn.is-active {
-  color: var(--pulse-ui-accent) !important;
-  background: color-mix(in srgb, var(--pulse-ui-accent) 12%, var(--pulse-ui-surface)) !important;
 }
 
 .crisp-launchpad-view .launchpad-badge {
@@ -832,314 +793,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   }
 }
 
-/* ==========================================================================
-   系统节奏 · 贡献热力图 / 环形进度 / 桑基图（v1.1 新增，纯 CSS 绘制）
-   ========================================================================== */
-
-/* --- 贡献热力图（几何与色阶对齐本库 crisp-pulse 的 .crisp-pulse-cell）--- */
-.crisp-launchpad-view .launchpad-heat-box {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.crisp-launchpad-view .launchpad-heat-weekday { text-align: right; }
-.crisp-launchpad-view .launchpad-heat-scroll {
-  overflow-x: auto;
-  padding: 4px 6px 8px 6px;
-}
-
-.crisp-launchpad-view .launchpad-heat-wrap {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 100%;
-}
-
-.crisp-launchpad-view .launchpad-heat-months {
-  display: grid;
-  gap: 6px;
-}
-
-.crisp-launchpad-view .launchpad-heat-monthlabel {
-  font-size: 10px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: visible;
-}
-
-.crisp-launchpad-view .launchpad-heat-body {
-  display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
-  gap: 6px;
-}
-
-.crisp-launchpad-view .launchpad-heat-weekdays {
-  display: grid;
-  grid-template-rows: repeat(7, minmax(0, 1fr));
-  row-gap: 3.5px;
-  align-items: center;
-  width: 26px;
-  font-size: 10px;
-  color: var(--text-faint);
-  padding: 4px 0;
-}
-
-.crisp-launchpad-view .launchpad-heat-weekdays > :nth-child(1) { grid-row: 1; }
-.crisp-launchpad-view .launchpad-heat-weekdays > :nth-child(2) { grid-row: 3; }
-.crisp-launchpad-view .launchpad-heat-weekdays > :nth-child(3) { grid-row: 5; }
-.crisp-launchpad-view .launchpad-heat-weekdays > :nth-child(4) { grid-row: 7; }
-
-.crisp-launchpad-view .launchpad-heat-weeks {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 13px;
-  gap: 6px;
-  justify-content: start;
-  overflow: visible;
-  padding: 4px 0;
-}
-
-.crisp-launchpad-view .launchpad-heat-week {
-  display: flex;
-  flex-direction: column;
-  gap: 3.5px;
-  width: 13px;
-  min-width: 13px;
-}
-
-/* 格子：13px 见方、圆角固定 2.5px（图形元素不用主题半径，故不写 var(--radius-*)） */
-.crisp-launchpad-view .launchpad-heat-cell {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 1;
-  max-width: 13px;
-  border-radius: 2.5px;
-  background-color: var(--background-modifier-border);
-  position: relative;
-  transition: transform 0.1s ease;
-}
-
-.crisp-launchpad-view .launchpad-heat-cell:hover {
-  transform: scale(1.25);
-  z-index: 5;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-}
-
-.crisp-launchpad-view .launchpad-heat-cell.is-today {
-  box-shadow: inset 0 0 0 1.5px var(--text-accent, var(--lp-accent));
-}
-
-.crisp-launchpad-view .launchpad-heat-cell:focus-visible {
-  outline: 2px solid var(--text-accent, var(--lp-accent));
-  outline-offset: 2px;
-}
-
-/* 六档色阶：与 crisp-pulse 的 data-level 同源（accent 单色多档，不引入第二色相） */
-.crisp-launchpad-view :is(.launchpad-heat-cell, .launchpad-heat-legend-cell)[data-level="0"] {
-  background-color: var(--background-modifier-border);
-  opacity: 0.4;
-}
-.crisp-launchpad-view :is(.launchpad-heat-cell, .launchpad-heat-legend-cell)[data-level="1"] {
-  background-color: color-mix(in srgb, var(--lp-accent) 25%, transparent);
-}
-.crisp-launchpad-view :is(.launchpad-heat-cell, .launchpad-heat-legend-cell)[data-level="2"] {
-  background-color: color-mix(in srgb, var(--lp-accent) 45%, transparent);
-}
-.crisp-launchpad-view :is(.launchpad-heat-cell, .launchpad-heat-legend-cell)[data-level="3"] {
-  background-color: color-mix(in srgb, var(--lp-accent) 65%, transparent);
-}
-.crisp-launchpad-view :is(.launchpad-heat-cell, .launchpad-heat-legend-cell)[data-level="4"] {
-  background-color: color-mix(in srgb, var(--lp-accent) 85%, transparent);
-}
-.crisp-launchpad-view :is(.launchpad-heat-cell, .launchpad-heat-legend-cell)[data-level="5"] {
-  background-color: var(--lp-accent);
-}
-
-.crisp-launchpad-view .launchpad-heat-week.is-outside-range .launchpad-heat-cell {
-  opacity: 0.28;
-}
-
-.crisp-launchpad-view .launchpad-heat-week.is-outside-range .launchpad-heat-cell:hover,
-.crisp-launchpad-view .launchpad-heat-week.is-outside-range .launchpad-heat-cell:focus-visible {
-  opacity: 0.85;
-  filter: none;
-}
-
-.crisp-launchpad-view .launchpad-heat-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding-top: 8px;
-  font-size: 11px;
-  color: var(--text-faint);
-}
-
-.crisp-launchpad-view .launchpad-heat-legend {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-}
-
-/* 热力图的玩法：点某天 → 下方展开当天改动的文件清单 */
-.crisp-launchpad-view .launchpad-heat-cell.is-clickable {
-  cursor: pointer;
-}
-
-.crisp-launchpad-view .launchpad-heat-cell.is-selected {
-  position: relative;
-  z-index: 2;
-  outline: 2px solid var(--crisp-accent);
-  outline-offset: 1px;
-}
-
-.crisp-launchpad-view .launchpad-heat-detail {
-  margin-top: var(--crisp-space);
-  padding-top: var(--crisp-space-sm);
-  border-top: 1px solid var(--crisp-border);
-}
-
-.crisp-launchpad-view .launchpad-heat-detail-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.crisp-launchpad-view .launchpad-heat-detail-date {
-  color: var(--text-normal);
-  font-size: 12px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-}
-
-.crisp-launchpad-view .launchpad-heat-detail-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  max-height: 220px;
-  margin-top: var(--crisp-space-sm);
-  overflow: auto;
-}
-
-.crisp-launchpad-view .launchpad-heat-detail-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--crisp-space-sm);
-  padding: 3px 6px;
-  border-radius: var(--crisp-radius-sm);
-  cursor: pointer;
-  transition: background-color var(--crisp-dur-fast) var(--crisp-ease);
-}
-
-.crisp-launchpad-view .launchpad-heat-detail-row:hover {
-  background: var(--background-modifier-hover);
-}
-
-.crisp-launchpad-view .launchpad-heat-detail-time {
-  flex-shrink: 0;
-  color: var(--text-faint);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
-.crisp-launchpad-view .launchpad-heat-detail-title {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.crisp-launchpad-view .launchpad-heat-detail-path {
-  flex-shrink: 0;
-  max-width: 42%;
-  overflow: hidden;
-  color: var(--text-faint);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.crisp-launchpad-view .launchpad-heat-detail-empty {
-  margin-top: var(--crisp-space-sm);
-  color: var(--text-faint);
-  font-size: 11px;
-}
-
-.crisp-launchpad-view .launchpad-heat-detail-more {
-  margin-top: 6px;
-  color: var(--text-faint);
-  font-size: 10px;
-}
-
-.crisp-launchpad-view .launchpad-heat-legend-cell {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-}
-
-/* --- 完成度：Crisp stat-box（替代对照对象的环形进度）--- */
-.crisp-launchpad-view .launchpad-rhythm-split {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.crisp-launchpad-view .launchpad-stat-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  min-width: 260px;
-}
-
-.crisp-launchpad-view .launchpad-stat-row[data-count="3"] {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.crisp-launchpad-view .launchpad-stat-box {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--lp-radius-sm, 4px);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.crisp-launchpad-view .launchpad-stat-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
-.crisp-launchpad-view .launchpad-stat-val-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-
-.crisp-launchpad-view .launchpad-stat-val {
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.1;
-  color: var(--text-normal);
-  font-variant-numeric: tabular-nums;
-}
-
-.crisp-launchpad-view .launchpad-stat-unit { font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
-
-.crisp-launchpad-view .launchpad-stat-bar {
-  height: 4px;
-  border-radius: 999px;
-  background: var(--background-modifier-border);
-  overflow: hidden;
-}
-
-.crisp-launchpad-view .launchpad-stat-bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--lp-accent);
-  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
 /* --- 内容流向：Crisp distribution-bar --- */
 .crisp-launchpad-view .launchpad-dist-bar {
   display: flex;
@@ -1150,11 +803,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 }
 
 .crisp-launchpad-view .launchpad-dist-seg { height: 100%; transition: width 0.3s ease; }
-
-@container launchpad (max-width: 900px) {
-  .crisp-launchpad-view .launchpad-rhythm-split { flex-direction: column; gap: 20px; }
-  .crisp-launchpad-view .launchpad-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 
 @container launchpad (max-width: 700px) {
       .crisp-launchpad-view .launchpad-action-grid { grid-template-columns: 1fr; }
@@ -1804,11 +1452,6 @@ body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting tex
 .crisp-panel-capture-editor { min-width: 0; }
 .crisp-panel-render-buffer { display: contents; }
 .launchpad-stage-items { min-width: 0; }
-.launchpad-findings-list {
-  max-height: 480px;
-  overflow: auto;
-  scrollbar-gutter: stable;
-}
 .launchpad-finding-row { min-width: 0; }
 .crisp-launchpad-view .launchpad-finding-row .launchpad-row-left {
   flex: 1;
@@ -2117,3 +1760,64 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
 
 .crisp-launchpad-view .launchpad-inbox-card .launchpad-row-right { flex-shrink: 0; }
 .crisp-launchpad-view button.launchpad-list-more { align-self: center; margin-top: 8px; }
+
+/* ==========================================================================
+   0.8.0 复盘页近期节奏（Crisp Pulse）与系统问题分组
+   ========================================================================== */
+.crisp-launchpad-view .launchpad-pulse-body { display: flex; flex-direction: column; gap: 16px; }
+.crisp-launchpad-view .launchpad-pulse-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.crisp-launchpad-view .launchpad-pulse-stat { padding: 2px 4px; min-width: 0; }
+.crisp-launchpad-view .launchpad-pulse-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 96px;
+  padding-top: 4px;
+  border-bottom: 1px solid var(--pulse-ui-border);
+}
+.crisp-launchpad-view .launchpad-pulse-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--pulse-ui-accent) 45%, transparent);
+}
+.crisp-launchpad-view .launchpad-pulse-bar.is-active { background: var(--pulse-ui-accent); }
+.crisp-launchpad-view .launchpad-pulse-bar.is-missing {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--text-normal) 7%, transparent) 0 3px, transparent 3px 6px);
+}
+.crisp-launchpad-view .launchpad-pulse-rhythm .launchpad-card-header { flex-wrap: wrap; row-gap: 10px; }
+
+.crisp-launchpad-view .launchpad-finding-groups { display: flex; flex-direction: column; margin: -6px -8px; }
+.crisp-launchpad-view .launchpad-finding-group + .launchpad-finding-group { border-top: 1px solid color-mix(in srgb, var(--pulse-ui-border) 60%, transparent); }
+.crisp-launchpad-view .launchpad-finding-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  min-width: 0;
+}
+.crisp-launchpad-view .launchpad-finding-group-head:hover { background: var(--background-modifier-hover); }
+.crisp-launchpad-view .launchpad-finding-group-head:focus-visible { outline: 2px solid color-mix(in srgb, var(--lp-accent) 70%, transparent); outline-offset: 1px; }
+.crisp-launchpad-view .launchpad-finding-chevron { display: inline-flex; color: var(--text-faint); transition: transform var(--crisp-dur) var(--crisp-ease); }
+.crisp-launchpad-view .launchpad-finding-chevron svg { width: 15px; height: 15px; }
+.crisp-launchpad-view .launchpad-finding-group.is-open .launchpad-finding-chevron { transform: rotate(90deg); }
+.crisp-launchpad-view .launchpad-finding-group-name { flex: 1; min-width: 0; font-size: 13.5px; color: var(--text-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crisp-launchpad-view .launchpad-finding-group-count { font-family: var(--font-monospace); font-size: 13px; color: var(--text-normal); min-width: 3ch; text-align: right; }
+.crisp-launchpad-view .launchpad-severity { border: 0; }
+.crisp-launchpad-view .launchpad-severity.is-0 { color: var(--color-red); background: color-mix(in srgb, var(--color-red) 12%, transparent); }
+.crisp-launchpad-view .launchpad-severity.is-2 { color: var(--text-faint); }
+.crisp-launchpad-view .launchpad-finding-group-body { display: none; padding: 0 8px 8px 33px; flex-direction: column; }
+.crisp-launchpad-view .launchpad-finding-group.is-open .launchpad-finding-group-body { display: flex; }
+.crisp-launchpad-view .launchpad-finding-group-body .launchpad-finding-row { padding: 7px 6px; }
+.crisp-launchpad-view .launchpad-finding-group-body .launchpad-row-left { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+.crisp-launchpad-view .launchpad-finding-group-body .launchpad-row-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.crisp-launchpad-view .launchpad-finding-group-body .launchpad-finding-path { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-size: 11.5px; color: var(--text-faint); }
+
+@container launchpad (max-width: 560px) {
+  .crisp-launchpad-view .launchpad-pulse-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
+  .crisp-launchpad-view .launchpad-finding-group-body { padding-left: 8px; }
+  .crisp-launchpad-view .launchpad-finding-group-body .launchpad-row-left { flex-direction: column; align-items: stretch; gap: 1px; }
+  .crisp-launchpad-view .launchpad-finding-group-body .launchpad-finding-path { flex: none; }
+}

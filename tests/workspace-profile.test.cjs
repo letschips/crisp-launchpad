@@ -129,16 +129,13 @@ test("形态决定页签集合，未知形态回落内容运营", () => {
     );
     assert.ok(profile.heroTitle, `${id}: 必须有 hero 标题`);
     assert.equal(typeof profile.features.workGrid, "boolean", `${id}: 必须显式声明 workGrid`);
-    assert.equal(typeof profile.features.completionStats, "boolean", `${id}: 必须显式声明 completionStats`);
     assert.equal(typeof profile.features.kernelPill, "boolean", `${id}: 必须显式声明 kernelPill`);
     /* 指向 ANKS 对象层的卡片只在有该层的形态下渲染 */
     if (id === "actions-only") {
       assert.equal(profile.features.workGrid, false, "陌生库不应渲染 待整理/最近产出 卡");
-      assert.equal(profile.features.completionStats, false, "陌生库不应渲染四条对象层 stat");
       assert.equal(profile.features.kernelPill, false, "陌生库不应显示内核胶囊（没有 ANKS 语境）");
     } else {
       assert.equal(profile.features.workGrid, true);
-      assert.equal(profile.features.completionStats, true);
     }
     launchpad.launchpadPages(id).forEach((page) => assert.ok(page.name, `${id}: 页 ${page.id} 缺少名称`));
   }

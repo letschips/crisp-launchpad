@@ -107,9 +107,8 @@ const CONTENT_STATUSES = ["draft", "parked", "published", "deprecated"];
 const SNAPSHOT_ROOT = ".runtime/snapshot";
 const TAB_KEY = "crisp-launchpad-tab";
 const SYSTEM_DRAWER_KEY = "crisp-launchpad-system-drawer";
-const RHYTHM_WEEKS_KEY = "crisp-launchpad-rhythm-weeks";
-const RHYTHM_WEEK_OPTIONS = [4, 13, 26, 52];
-const TOTAL_HEATMAP_WEEKS = 53;
+const RHYTHM_DAYS_KEY = "crisp-launchpad-rhythm-days";
+const RHYTHM_DAY_OPTIONS = [7, 30, 90];
 const AUTO_ROUTE_DEBOUNCE_MS = 1800;
 const AUTO_ROUTE_COOLDOWN_MS = 2500;
 const AUTO_HEALTH_REBUILD_MS = 90 * 1000;
@@ -119,6 +118,24 @@ const PULSE_PLUGIN_ID = "crisp-pulse";
 const STALE_INBOX_LABEL = "超过 3 天未整理";
 /* 发布前的阶段超过这么多天没动，项目行标警示色。 */
 const STUCK_WARNING_DAYS = 14;
+/* ANKS health 的问题代码在界面上的名字和去处；没列到的代码原样显示。 */
+const FINDING_CODE_LABEL = {
+  STALE_INBOX: STALE_INBOX_LABEL,
+  ORPHAN_ASSET_OLD: "没有被引用的旧附件",
+  ORPHAN_ASSET_RECENT: "没有被引用的新附件",
+  UNROUTABLE_NOTE: "无法自动归位的笔记",
+  LEGACY_PROVENANCE_UNVERIFIED: "来源未核验的知识笔记",
+  PENDING_WRITEBACK: "待回写",
+  WIP_OVERFLOW: "在制内容过多",
+  FORWARD_LINK: "指向未建笔记的链接",
+};
+const FINDING_CODE_TARGET = {
+  STALE_INBOX: { tab: "knowledge", label: "去整理" },
+  PENDING_WRITEBACK: { tab: "review", label: "去复盘" },
+  WIP_OVERFLOW: { tab: "create", label: "去创作" },
+};
+const FINDING_SEVERITY_ORDER = { blocking: 0, error: 0, operational: 1, informational: 2 };
+const FINDING_GROUP_PREVIEW = 20;
 const PULSE_REFRESH_DEBOUNCE_MS = 1500;
 const PAGES = [
   { id: "today", name: "今天" },
@@ -157,21 +174,21 @@ const LAUNCHPAD_PROFILES = {
   "content-ops": {
     heroTitle: "ANKS · 内容工作台",
     tabs: ["today", "create", "knowledge", "review", "system"],
-    features: { create: true, review: true, kernelPill: true, workGrid: true, completionStats: true },
+    features: { create: true, review: true, kernelPill: true, workGrid: true },
     kpis: ["projects", "inbox", "knowledge", "raw", "outputs", "active"],
   },
   /* 有知识层但没有内容流水线：去掉创作页，保留复盘（行动收口与知识回写仍适用） */
   knowledge: {
     heroTitle: "ANKS · 知识工作台",
     tabs: ["today", "knowledge", "review", "system"],
-    features: { create: false, review: true, kernelPill: true, workGrid: true, completionStats: true },
+    features: { create: false, review: true, kernelPill: true, workGrid: true },
     kpis: ["inbox", "knowledge", "raw", "outputs", "active"],
   },
   /* 陌生库：只剩行动层与系统页，也不再显示 DSH 状态（对非 ANKS 用户没有意义） */
   "actions-only": {
     heroTitle: "行动工作台",
     tabs: ["today", "system"],
-    features: { create: false, review: false, kernelPill: false, workGrid: false, completionStats: false },
+    features: { create: false, review: false, kernelPill: false, workGrid: false },
     /* 只剩「近 7 天更新」：其余 KPI 都指向 ANKS 的对象层，陌生库里恒为 0 且点开是「未找到」 */
     kpis: ["active"],
   },
@@ -1033,15 +1050,6 @@ function actionItemMeta(item) {
   return "随时";
 }
 
-function heatLevel(count) {
-  if (count <= 0) return 0;
-  if (count <= 2) return 1;
-  if (count <= 5) return 2;
-  if (count <= 10) return 3;
-  if (count <= 20) return 4;
-  return 5;
-}
-
 function snapshotAge(generatedAt) {
   const target =
     generatedAt && typeof generatedAt === "object"
@@ -1325,11 +1333,6 @@ function compactCommandError(stdout, stderr, fallback = "") {
   return line.length > 180 ? `${line.slice(0, 177)}...` : line;
 }
 
-function normalizeRhythmWeeks(value) {
-  const parsed = Number(value);
-  return RHYTHM_WEEK_OPTIONS.includes(parsed) ? parsed : 13;
-}
-
 /* 界面上的中文状态。文件和快照里仍是英文值，只在显示时换。 */
 const CONTENT_STATUS_LABEL = { draft: "草稿", parked: "搁置", published: "已发布", deprecated: "已废弃" };
 const SEVERITY_LABEL = { blocking: "阻塞", operational: "待办", informational: "提示" };
@@ -1429,7 +1432,6 @@ class LaunchpadRenderer {
     /* KPI 卡的跳转目标按探测到的主 Topic 解析，避免写死 self-media */
     this.capabilities = capabilities;
     this.activeTab = this.loadActiveTab();
-    this.rhythmWeeks = this.loadRhythmWeeks();
   }
 
   hasTab(id) {
@@ -1456,18 +1458,18 @@ class LaunchpadRenderer {
     }
   }
 
-  loadRhythmWeeks() {
+  loadRhythmDays() {
     try {
-      return normalizeRhythmWeeks(window.localStorage.getItem(RHYTHM_WEEKS_KEY));
+      const saved = Number(window.localStorage.getItem(RHYTHM_DAYS_KEY));
+      return RHYTHM_DAY_OPTIONS.includes(saved) ? saved : 30;
     } catch (error) {
-      return 13;
+      return 30;
     }
   }
 
-  saveRhythmWeeks(weeks) {
-    this.rhythmWeeks = normalizeRhythmWeeks(weeks);
+  saveRhythmDays(days) {
     try {
-      window.localStorage.setItem(RHYTHM_WEEKS_KEY, String(this.rhythmWeeks));
+      window.localStorage.setItem(RHYTHM_DAYS_KEY, String(days));
     } catch (error) {
       // localStorage is optional.
     }
@@ -1926,277 +1928,66 @@ class LaunchpadRenderer {
     }
   }
 
-  renderRhythm(parent) {
-    const card = parent.createDiv({ cls: "launchpad-card" });
-    const header = card.createDiv({ cls: "launchpad-card-header launchpad-rhythm-header" });
+  /* 复盘页的近期节奏：读 Crisp Pulse 的 getRecentDays()（1.42.0+），柱高是每天的贡献分，
+     没有记录的日子画虚柱，不当成 0。没有 Pulse 时只给一句提示。 */
+  renderPulseRhythm(parent) {
+    const card = parent.createDiv({ cls: "launchpad-card launchpad-pulse-rhythm" });
+    const header = card.createDiv({ cls: "launchpad-card-header" });
     const title = header.createDiv({ cls: "launchpad-card-title" });
     addIcon(title, "activity");
-    title.createSpan({ text: "系统节奏" });
-    this.rhythmBadge = title.createSpan({ cls: "launchpad-badge", text: `近 ${this.rhythmWeeks} 周` });
-    const ranges = header.createDiv({ cls: "launchpad-rhythm-ranges" });
-    this.rhythmRangeButtons = new Map();
-    for (const weeks of RHYTHM_WEEK_OPTIONS) {
-      const button = ranges.createEl("button", {
-        cls: `launchpad-range-btn${weeks === this.rhythmWeeks ? " is-active" : ""}`,
-        text: `${weeks} 周`,
-      });
-      this.rhythmRangeButtons.set(weeks, button);
-      button.addEventListener("click", () => this.setRhythmRange(weeks));
-    }
-    header.createDiv({ cls: "launchpad-badge", text: `近 7 天更新 ${this.summary.active.length} 个文件` });
-
-    const split = card.createDiv({ cls: "launchpad-rhythm-split" });
-    this.renderHeatmap(split);
-    /* 四条 stat 全部指向 ANKS 的对象层（内容已发布 / 知识回写 / 素材升级），
-       陌生库里恒为 0/0 —— 形态没有这些层时不渲染。 */
-    if (this.profile.features.completionStats) this.renderCompletionStats(split);
-  }
-
-  setRhythmRange(weeks) {
-    const nextWeeks = normalizeRhythmWeeks(weeks);
-    if (nextWeeks === this.rhythmWeeks) return;
-    this.saveRhythmWeeks(nextWeeks);
-    for (const [value, button] of this.rhythmRangeButtons.entries()) {
-      button.toggleClass("is-active", value === this.rhythmWeeks);
-    }
-    this.rhythmBadge.setText(`近 ${this.rhythmWeeks} 周`);
-    this.updateHeatmapRange();
-    this.updateCompletionStats();
-  }
-
-  renderHeatmap(parent) {
-    const days = new Map();
-    for (const page of this.pages) {
-      const key = dateKeyFromTimestamp(page.mtime);
-      /* 无 mtime 的页不归属任何一天：不能算作今天有活动。 */
-      if (!key) continue;
-      days.set(key, (days.get(key) || 0) + 1);
-    }
-    const currentWeekStart = startOfMonday(new Date());
-    const start = new Date(currentWeekStart);
-    start.setDate(start.getDate() - (TOTAL_HEATMAP_WEEKS - 1) * 7);
-    this.heatDays = days;
-    this.heatWeeks = [];
-    const box = parent.createDiv({ cls: "launchpad-heat-box" });
-    const head = box.createDiv({ cls: "launchpad-heat-foot" });
-    this.heatRangeLabel = head.createSpan();
-    this.heatPeakLabel = head.createSpan();
-
-    const scroll = box.createDiv({ cls: "launchpad-heat-scroll" });
-    const wrap = scroll.createDiv({ cls: "launchpad-heat-wrap" });
-
-    // 月份刻度
-    const monthsContainer = wrap.createDiv({ cls: "launchpad-heat-body" });
-    monthsContainer.createDiv(); // 26px 留白对齐星期
-    const monthsGrid = monthsContainer.createDiv({ cls: "launchpad-heat-months" });
-    monthsGrid.style.display = "grid";
-    monthsGrid.style.gridTemplateColumns = `repeat(${TOTAL_HEATMAP_WEEKS}, minmax(0, 1fr))`;
-    monthsGrid.style.gap = "3.5px";
-
-    let lastMonth = -1;
-    for (let week = 0; week < TOTAL_HEATMAP_WEEKS; week += 1) {
-      const date = new Date(start);
-      date.setDate(start.getDate() + week * 7);
-      const m = date.getMonth();
-      if (m !== lastMonth) {
-        lastMonth = m;
-        const label = monthsGrid.createDiv({
-          cls: "launchpad-heat-monthlabel",
-          text: `${m + 1}月`,
-        });
-        label.style.gridColumn = String(week + 1);
-      }
-    }
-
-    // 热力图主体：左星期 + 右 53 周矩阵
-    const body = wrap.createDiv({ cls: "launchpad-heat-body" });
-    const weekdays = body.createDiv({ cls: "launchpad-heat-weekdays" });
-    for (const name of ["一", "三", "五", "日"]) {
-      weekdays.createSpan({ cls: "launchpad-heat-weekday", text: name });
-    }
-
-    const grid = body.createDiv({ cls: "launchpad-heat-weeks" });
-    const todayKey = dateKey(new Date());
-    this.heatCells = new Map();
-    for (let week = 0; week < TOTAL_HEATMAP_WEEKS; week += 1) {
-      const column = grid.createDiv({ cls: "launchpad-heat-week" });
-      this.heatWeeks.push({ index: week, column });
-      for (let day = 0; day < 7; day += 1) {
-        const date = new Date(start);
-        date.setDate(start.getDate() + week * 7 + day);
-        const key = dateKey(date);
-        const count = days.get(key) || 0;
-        const cell = column.createDiv({ cls: "launchpad-heat-cell" });
-        cell.dataset.level = String(heatLevel(count));
-        cell.title = `${key}：${count} 次变更`;
-        if (key === todayKey) cell.addClass("is-today");
-        cell.addClass("is-clickable");
-        this.heatCells.set(key, cell);
-        makeClickable(cell, () => this.selectHeatDay(key), `${key} 的改动`);
-      }
-    }
-    const legend = box.createDiv({ cls: "launchpad-heat-legend" });
-    legend.createSpan({ text: "少" });
-    for (let level = 0; level <= 5; level += 1) {
-      const cell = legend.createDiv({ cls: "launchpad-heat-legend-cell" });
-      cell.dataset.level = String(level);
-    }
-    legend.createSpan({ text: "多" });
-    this.heatDetailEl = box.createDiv({ cls: "launchpad-heat-detail" });
-    if (!this.heatSelectedDay || !this.heatCells.has(this.heatSelectedDay)) {
-      /* 默认落在最近一个有改动的日子：热力图一打开就有内容，而不是一块空白等提示。 */
-      const active = [...days.keys()].filter((key) => key <= todayKey).sort();
-      this.heatSelectedDay = days.has(todayKey)
-        ? todayKey
-        : active[active.length - 1] || todayKey;
-    }
-    this.updateHeatmapRange();
-    this.renderHeatDetail();
-  }
-
-  /* 热力图的时间维度索引：点某天 → 列出当天改了哪些文件，可直接打开。 */
-  pagesChangedOn(key) {
-    return this.pages
-      .filter((page) => dateKeyFromTimestamp(page.mtime) === key)
-      .sort((left, right) => (right.mtime || 0) - (left.mtime || 0));
-  }
-
-  selectHeatDay(key) {
-    if (!this.heatCells?.has(key)) return;
-    this.heatSelectedDay = key;
-    this.renderHeatDetail();
-  }
-
-  renderHeatDetail() {
-    const host = this.heatDetailEl;
-    if (!host) return;
-    host.empty();
-    for (const [key, cell] of this.heatCells.entries()) {
-      cell.toggleClass("is-selected", key === this.heatSelectedDay);
-    }
-    const key = this.heatSelectedDay;
-    if (!key) return;
-
-    const pages = this.pagesChangedOn(key);
-    const head = host.createDiv({ cls: "launchpad-heat-detail-head" });
-    head.createSpan({ cls: "launchpad-heat-detail-date", text: key });
-    head.createSpan({ cls: "launchpad-badge", text: `${pages.length} 个文件最后更新于此日` });
-    const perType = new Map();
-    for (const page of pages) {
-      const type = textOr(page.type, "other") || "other";
-      perType.set(type, (perType.get(type) || 0) + 1);
-    }
-    for (const [type, count] of [...perType.entries()].sort((a, b) => b[1] - a[1])) {
-      head.createSpan({
-        cls: "launchpad-badge",
-        text: `${PAGE_TYPE_LABEL[type] || type} ${count}`,
-      });
-    }
-    if (!pages.length) {
-      host.createDiv({ cls: "launchpad-heat-detail-empty", text: "这天没有改动记录" });
+    title.createSpan({ text: "近期节奏" });
+    const actions = header.createDiv({ cls: "launchpad-actions" });
+    const body = card.createDiv({ cls: "launchpad-pulse-body" });
+    const recent = this.snapshots.signals?.recent;
+    const pulseOn = Boolean(this.app.plugins?.enabledPlugins?.has(PULSE_PLUGIN_ID));
+    if (!recent) {
+      this.renderEmpty(body, pulseOn ? "更新 Crisp Pulse 到 1.42.0 以上后，这里显示每天的贡献节奏" : "启用 Crisp Pulse 后，这里显示每天的贡献节奏");
       return;
     }
-    const list = host.createDiv({ cls: "launchpad-heat-detail-list" });
-    const limit = 12;
-    for (const page of pages.slice(0, limit)) {
-      const row = list.createDiv({ cls: "launchpad-heat-detail-row" });
-      row.createSpan({ cls: "launchpad-heat-detail-time", text: formatDateTime(page.mtime) });
-      row.createSpan({
-        cls: "launchpad-heat-detail-title",
-        text: pageLabel(page),
-      });
-      row.createSpan({
-        cls: "launchpad-heat-detail-path",
-        text: String(page.path || "").replace(/^Topics\/[^/]+\//, ""),
-      });
-      makeClickable(
-        row,
-        () => this.view.openTarget(page.path, page.title),
-        `打开 ${pageLabel(page)}`,
-      );
+    const seg = actions.createDiv({ cls: "launchpad-seg" });
+    seg.setAttribute("role", "tablist");
+    seg.setAttribute("aria-label", "时间范围");
+    const open = addButton(actions, "在 Pulse 看复盘");
+    open.addEventListener("click", () => this.plugin.runCrispCommand("crisp-pulse:open-crisp-pulse-view", "Crisp Pulse"));
+    const buttons = new Map();
+    const draw = (range) => {
+      this.saveRhythmDays(range);
+      for (const [value, button] of buttons) button.setAttribute("aria-selected", String(value === range));
+      body.empty();
+      const days = recent.days.slice(-range);
+      const recorded = days.filter((day) => day.recorded);
+      const active = recorded.filter((day) => day.active).length;
+      const focus = recorded.reduce((sum, day) => sum + (Number(day.focusMinutes) || 0), 0);
+      const tasks = recorded.reduce((sum, day) => sum + (Number(day.tasksCompleted) || 0), 0);
+      const stats = body.createDiv({ cls: "launchpad-pulse-stats" });
+      for (const [value, label] of [
+        [`${active} / ${recorded.length}`, "有产出 / 有记录"],
+        [`${Number(recent.streak) || 0} 天`, "连续"],
+        [focus >= 60 ? `${(focus / 60).toFixed(1)} 小时` : `${focus} 分钟`, "专注"],
+        [String(tasks), "完成任务"],
+      ]) {
+        const cell = stats.createDiv({ cls: "launchpad-pulse-stat" });
+        cell.createDiv({ cls: "launchpad-today-value", text: value });
+        cell.createDiv({ cls: "launchpad-today-label", text: label });
+      }
+      const max = Math.max(1, ...recorded.map((day) => Number(day.score) || 0));
+      const chart = body.createDiv({ cls: "launchpad-pulse-bars" });
+      chart.setAttribute("role", "img");
+      chart.setAttribute("aria-label", `近 ${range} 天每天的贡献分`);
+      for (const day of days) {
+        const bar = chart.createDiv({ cls: `launchpad-pulse-bar${day.recorded ? "" : " is-missing"}${day.active ? " is-active" : ""}` });
+        const score = Number(day.score) || 0;
+        bar.style.height = day.recorded ? `${Math.max(4, Math.round((score / max) * 100))}%` : "100%";
+        bar.setAttribute("aria-label", day.recorded ? `${day.date} · ${formatScore(score)} 分` : `${day.date} · 未记录`);
+        bar.setAttribute("data-tooltip-position", "top");
+      }
+    };
+    for (const range of RHYTHM_DAY_OPTIONS) {
+      const button = seg.createEl("button", { cls: "launchpad-seg-btn", text: `${range} 天`, attr: { type: "button", role: "tab" } });
+      button.addEventListener("click", () => draw(range));
+      buttons.set(range, button);
     }
-    if (pages.length > limit) {
-      host.createDiv({
-        cls: "launchpad-heat-detail-more",
-        text: `另有 ${pages.length - limit} 个文件`,
-      });
-    }
-  }
-
-  updateHeatmapRange() {
-    const currentWeekStart = startOfMonday(new Date());
-    const rangeStart = new Date(currentWeekStart);
-    rangeStart.setDate(rangeStart.getDate() - (this.rhythmWeeks - 1) * 7);
-    const rangeStartKey = dateKey(rangeStart);
-    const todayKey = dateKey(new Date());
-    const outsideWeekCount = TOTAL_HEATMAP_WEEKS - this.rhythmWeeks;
-    for (const entry of this.heatWeeks || []) {
-      entry.column.toggleClass("is-outside-range", entry.index < outsideWeekCount);
-    }
-    const visibleCounts = [...(this.heatDays || new Map()).entries()]
-      .filter(([key]) => key >= rangeStartKey && key <= todayKey)
-      .map(([, count]) => count);
-    this.heatRangeLabel.setText(`完整 53 周 · 统计近 ${this.rhythmWeeks} 周`);
-    this.heatPeakLabel.setText(`按最后修改日期 · 峰值 ${Math.max(0, ...visibleCounts)} 个文件/天`);
-  }
-
-  renderCompletionStats(parent) {
-    this.statsContainer = parent.createDiv({ cls: "launchpad-stat-row" });
-    this.statRefs = [];
-    const statCount = this.completionStatDefinitions().length;
-    this.statsContainer.setAttribute("data-count", String(statCount));
-    for (let index = 0; index < statCount; index += 1) {
-      const box = this.statsContainer.createDiv({ cls: "launchpad-stat-box" });
-      const label = box.createDiv({ cls: "launchpad-stat-label" });
-      const row = box.createDiv({ cls: "launchpad-stat-val-row" });
-      const value = row.createSpan({ cls: "launchpad-stat-val" });
-      const unit = row.createSpan({ cls: "launchpad-stat-unit" });
-      const bar = box.createDiv({ cls: "launchpad-stat-bar" });
-      const fill = bar.createDiv({ cls: "launchpad-stat-bar-fill" });
-      this.statRefs.push({ label, value, unit, fill });
-    }
-    this.updateCompletionStats();
-  }
-
-  completionStatDefinitions() {
-    const definitions = [];
-    if (primaryContentTopic(this.capabilities)) {
-      definitions.push([
-        "内容已发布",
-        this.summary.articles.filter((page) => page.status === "published").length,
-        this.summary.articles.length,
-      ]);
-    }
-    const writebacks = this.pages.filter((page) =>
-      ["pending", "completed", "proposed"].includes(page.knowledge_writeback),
-    );
-    const raw = this.summary.raw.length;
-    const sources = this.pages.filter((page) => page.type === "source").length;
-    const rangeStart = Date.now() - this.rhythmWeeks * 7 * 86400000;
-    const rangeActiveDays = new Set(
-      this.pages
-        .filter((page) => page.mtime >= rangeStart)
-        .map((page) => dateKeyFromTimestamp(page.mtime))
-        .filter(Boolean),
-    ).size;
-    definitions.push(
-      ["知识回写", writebacks.filter((page) => page.knowledge_writeback === "completed").length, writebacks.length],
-      ["信源占素材比例", sources, sources + raw],
-      [`近 ${this.rhythmWeeks} 周更新日期占比`, rangeActiveDays, this.rhythmWeeks * 7],
-    );
-    return definitions;
-  }
-
-  updateCompletionStats() {
-    const definitions = this.completionStatDefinitions();
-    definitions.forEach(([label, value, total], index) => {
-      const percent = total ? Math.round((value / total) * 100) : 0;
-      const refs = this.statRefs[index];
-      refs.label.setText(label);
-      refs.value.setText(`${percent}%`);
-      refs.unit.setText(`${value}/${total}`);
-      refs.fill.style.width = `${percent}%`;
-    });
+    draw(this.loadRhythmDays());
   }
 
   renderWorkGrid(parent) {
@@ -2826,31 +2617,13 @@ class LaunchpadRenderer {
         }
       }
     }
-    this.renderRhythm(this.panels.review);
+    this.renderPulseRhythm(this.panels.review);
   }
 
   renderSystem() {
     if (this.profile.features.kernelPill) this.renderSystemDrawer(this.panels.system);
     const findings = this.snapshots.health?.data?.findings;
-    if (Array.isArray(findings)) {
-      const card = this.panels.system.createDiv({ cls: "launchpad-card" });
-      const header = card.createDiv({ cls: "launchpad-card-header" });
-      header.createDiv({ cls: "launchpad-card-title", text: "问题清单" });
-      header.createSpan({ cls: "launchpad-badge", text: `全库 · ${findings.length} 项` });
-      const list = card.createDiv({ cls: "launchpad-findings-list" });
-      const labels = { blocking: "阻塞", error: "阻塞", operational: "待处理", informational: "提示" };
-      const order = { blocking: 0, error: 0, operational: 1, informational: 2 };
-      for (const finding of [...findings].sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3))) {
-        const path = textOr(finding.path || finding.evidence?.path);
-        const row = list.createDiv({ cls: "launchpad-breakdown-row launchpad-finding-row" });
-        const left = row.createDiv({ cls: "launchpad-row-left" });
-        left.createDiv({ cls: "launchpad-row-title", text: textOr(finding.message || finding.summary, finding.code || "待检查") });
-        if (path) left.createDiv({ cls: "launchpad-finding-path", text: path });
-        row.createSpan({ cls: "launchpad-badge", text: labels[finding.severity] || finding.severity || "提示" });
-        if (path) makeClickable(row, () => this.view.openTarget(path), `打开问题来源：${path}`);
-      }
-      if (!findings.length) this.renderEmpty(list, "没有待处理问题");
-    }
+    if (Array.isArray(findings)) this.renderFindingGroups(this.panels.system, findings);
     if (!this.hasTab("knowledge") && !this.hasTab("review") && this.profile.kpis?.length) {
       this.renderKpis(this.panels.system);
     }
@@ -2922,6 +2695,79 @@ class LaunchpadRenderer {
       button.addEventListener("click", () => this.view.openTarget(target, label));
     }
     if (!quickCount) this.renderEmpty(actions, "没有识别到快捷入口");
+  }
+
+  /* 问题清单按代码归组：阻塞 → 待办 → 提示，同级按数量多到少；阻塞组默认展开。
+     有去处的组带入口，组内每行只写文件名和目录。 */
+  renderFindingGroups(parent, findings) {
+    const card = parent.createDiv({ cls: "launchpad-card" });
+    const header = card.createDiv({ cls: "launchpad-card-header" });
+    const title = header.createDiv({ cls: "launchpad-card-title" });
+    addIcon(title, "list-checks");
+    title.createSpan({ text: "问题清单" });
+    title.createSpan({ cls: "launchpad-badge", text: `${findings.length} 项` });
+    const list = card.createDiv({ cls: "launchpad-finding-groups" });
+    if (!findings.length) {
+      this.renderEmpty(list, "没有待处理问题");
+      return;
+    }
+    const rank = (severity) => FINDING_SEVERITY_ORDER[severity] ?? 3;
+    const groups = new Map();
+    for (const finding of findings) {
+      const code = textOr(finding.code, "UNKNOWN");
+      const group = groups.get(code) || { code, severity: finding.severity, items: [] };
+      if (rank(finding.severity) < rank(group.severity)) group.severity = finding.severity;
+      group.items.push(finding);
+      groups.set(code, group);
+    }
+    const sorted = [...groups.values()].sort((a, b) => rank(a.severity) - rank(b.severity) || b.items.length - a.items.length || a.code.localeCompare(b.code));
+    for (const group of sorted) {
+      const blocking = rank(group.severity) === 0;
+      const box = list.createDiv({ cls: `launchpad-finding-group${blocking ? " is-open is-blocking" : ""}` });
+      const head = box.createDiv({ cls: "launchpad-finding-group-head" });
+      addIcon(head, "chevron-right", "launchpad-finding-chevron");
+      head.createSpan({ cls: "launchpad-finding-group-name", text: FINDING_CODE_LABEL[group.code] || group.code });
+      head.createSpan({ cls: `launchpad-badge launchpad-severity is-${rank(group.severity)}`, text: SEVERITY_LABEL[group.severity === "error" ? "blocking" : group.severity] || SEVERITY_LABEL.informational });
+      head.createSpan({ cls: "launchpad-finding-group-count", text: String(group.items.length) });
+      const target = FINDING_CODE_TARGET[group.code];
+      if (target && this.hasTab(target.tab)) {
+        const go = addButton(head, target.label, "launchpad-row-action");
+        go.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this.showTab(target.tab);
+        });
+      }
+      const hint = textOr(group.items[0]?.action);
+      let open = blocking;
+      makeClickable(head, () => {
+        open = !open;
+        box.toggleClass("is-open", open);
+        head.setAttribute("aria-expanded", String(open));
+      }, `${FINDING_CODE_LABEL[group.code] || group.code} ${group.items.length} 项${hint ? `：${hint}` : ""}`);
+      head.setAttribute("aria-expanded", String(blocking));
+      const body = box.createDiv({ cls: "launchpad-finding-group-body" });
+      const renderItem = (finding) => {
+        const path = textOr(finding.path || finding.evidence?.path);
+        const row = body.createDiv({ cls: "launchpad-breakdown-row launchpad-finding-row" });
+        const left = row.createDiv({ cls: "launchpad-row-left" });
+        if (path) {
+          const slash = path.lastIndexOf("/");
+          left.createDiv({ cls: "launchpad-row-title", text: path.slice(slash + 1) });
+          if (slash > 0) left.createDiv({ cls: "launchpad-finding-path", text: path.slice(0, slash) });
+          makeClickable(row, () => this.view.openTarget(path), `打开：${path}`);
+        } else {
+          left.createDiv({ cls: "launchpad-row-title", text: textOr(finding.message || finding.summary, group.code) });
+        }
+      };
+      group.items.slice(0, FINDING_GROUP_PREVIEW).forEach(renderItem);
+      if (group.items.length > FINDING_GROUP_PREVIEW) {
+        const more = addButton(body, `查看全部 ${group.items.length} 项`, "launchpad-row-action launchpad-list-more");
+        more.addEventListener("click", () => {
+          more.remove();
+          group.items.slice(FINDING_GROUP_PREVIEW).forEach(renderItem);
+        });
+      }
+    }
   }
 
   renderEmpty(container, message) {
@@ -4758,7 +4604,7 @@ class CrispLaunchpadPlugin extends Plugin {
 
   /* 今天一行用的邻居数据，只读。读不到的项保持 null，界面据此不显示。 */
   async readTodaySignals() {
-    const signals = { pulse: null, completed: null };
+    const signals = { pulse: null, completed: null, recent: null };
     const pulse = this.app.plugins?.enabledPlugins?.has(PULSE_PLUGIN_ID) ? this.app.plugins?.plugins?.[PULSE_PLUGIN_ID] : null;
     if (pulse && typeof pulse.getTodaySnapshot === "function") {
       try {
@@ -4766,6 +4612,14 @@ class CrispLaunchpadPlugin extends Plugin {
         if (snapshot && Number.isFinite(Number(snapshot.score))) signals.pulse = snapshot;
       } catch (error) {
         console.warn("[Crisp Launchpad] reading Crisp Pulse failed:", error);
+      }
+    }
+    if (pulse && typeof pulse.getRecentDays === "function") {
+      try {
+        const recent = await pulse.getRecentDays(Math.max(...RHYTHM_DAY_OPTIONS));
+        if (recent && Array.isArray(recent.days)) signals.recent = recent;
+      } catch (error) {
+        console.warn("[Crisp Launchpad] reading Crisp Pulse history failed:", error);
       }
     }
     const tempo = this.usesTempo() ? this.tempoApi() : null;
@@ -5240,7 +5094,6 @@ module.exports.LAUNCHPAD_PROFILES = LAUNCHPAD_PROFILES;
 module.exports.WORKSPACE_MODES = WORKSPACE_MODES;
 
 module.exports.LaunchpadRenderer = LaunchpadRenderer;
-module.exports.TOTAL_HEATMAP_WEEKS = TOTAL_HEATMAP_WEEKS;
 module.exports.actionItemMeta = actionItemMeta;
 module.exports.buildStageBuckets = buildStageBuckets;
 module.exports.collectPages = collectPages;
@@ -5259,10 +5112,8 @@ module.exports.parseRouterIgnorePrefixes = parseRouterIgnorePrefixes;
 module.exports.setRouterIgnorePrefixes = setRouterIgnorePrefixes;
 module.exports.ROUTER_IGNORE_PREFIXES = ROUTER_IGNORE_PREFIXES;
 module.exports.ROUTING_RULES_PATH = ROUTING_RULES_PATH;
-module.exports.heatLevel = heatLevel;
 module.exports.inferTopicFromPath = inferTopicFromPath;
 module.exports.captureTargetTopic = captureTargetTopic;
-module.exports.normalizeRhythmWeeks = normalizeRhythmWeeks;
 module.exports.markProcessedContent = markProcessedContent;
 module.exports.tempoSummaryToAction = tempoSummaryToAction;
 module.exports.launchpadActionSourceId = launchpadActionSourceId;
