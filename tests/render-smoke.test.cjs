@@ -619,3 +619,98 @@ test("Pulse 状态变化时刷新视图", async () => {
   const plugin = await makePlugin({ desktop: true });
   assert.ok(plugin.app.workspace._events.includes("crisp-pulse:state"), "应监听 crisp-pulse:state");
 });
+
+/* ==========================================================================
+   0.7.0 第二期：新建行动原地弹窗、计数口径、创作页、知识页
+   ========================================================================== */
+
+test("新建行动：Tempo 有 openQuickAddModal 时原地弹窗，不跳转；没有或返回 false 时退回命令", async () => {
+  for (const [name, modal, expectCommand] of [
+    ["新版 Tempo", async () => true, false],
+    ["未激活", async () => false, true],
+    ["旧版 Tempo", undefined, true],
+  ]) {
+    const tempo = { ...fakeTempo(TEMPO_TASKS), ...(modal ? { openQuickAddModal: modal } : {}) };
+    let modalCalls = 0;
+    if (modal) tempo.openQuickAddModal = async () => { modalCalls++; return modal(); };
+    const plugin = await makePlugin({ desktop: true, extraPlugins: { "crisp-tempo": tempo } });
+    const commands = [];
+    plugin.app.commands.executeCommandById = (id) => { commands.push(id); return true; };
+    await plugin.openNewAction();
+    assert.equal(modalCalls, modal ? 1 : 0, `${name}：弹窗调用次数`);
+    assert.deepEqual(commands, expectCommand ? ["crisp-tempo:quick-add-task"] : [], `${name}：命令`);
+  }
+});
+
+function twoTopicPages() {
+  return [
+    ...makePages(),
+    page("Topics/main-business/raw/inbox/scratch/客户需求.md", { type: "raw", routing_status: "needs-classification" }, Date.now() - 1 * DAY),
+    page("Topics/main-business/knowledge/b.md", { type: "knowledge", title: "知识乙" }, Date.now() - 2 * DAY),
+  ];
+}
+
+test("计数口径：待整理在今天一行、知识页 KPI 和待整理卡片是同一个全库数，KPI 写出各 Topic 分布", async () => {
+  const plugin = await makePlugin({ desktop: true, pages: twoTopicPages() });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  const expected = api.summarizePages(twoTopicPages()).inbox.length;
+  const stripItem = findAll(view.contentEl, (el) => el.classes?.has("launchpad-today-item") && el.allText().endsWith("待整理"))[0];
+  assert.equal(stripItem.children[0].textContent, String(expected), "今天一行");
+  const kpi = findAll(view.contentEl, (el) => el.classes?.has("launchpad-kpi-box") && el.children[0]?.textContent === "待整理")[0];
+  assert.equal(kpi.children[1].textContent, String(expected), "知识页 KPI");
+  assert.ok(kpi.children[2].textContent.includes("main-business") && kpi.children[2].textContent.includes("self-media"), kpi.children[2].textContent);
+  const card = findAll(view.contentEl, (el) => el.classes?.has("launchpad-inbox-card"))[0];
+  assert.ok(card, "知识页应有待整理卡片");
+  assert.ok(card.allText().includes(`${expected} 条`), card.allText());
+  assert.ok(card.allText().includes("客户需求"), "卡片应包含其他 Topic 的材料");
+});
+
+test("计数口径：超过 3 天的积压和待整理分开命名", async () => {
+  const plugin = await makePlugin({ desktop: true });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  const text = view.contentEl.allText();
+  assert.ok(text.includes("超过 3 天未整理"), "应使用「超过 3 天未整理」");
+  assert.ok(!text.includes("收件箱待检查") && !text.includes("收件箱积压"), "旧标签应移除");
+});
+
+test("创作页：分段条每段带阶段名和数量，项目行显示几天未动，发布前阶段久未动标警示", async () => {
+  const pages = [
+    ...makePages(),
+    page("Topics/self-media/content-projects/WECHAT-20260901-OLD/article.md", { type: "output", content_role: "article", title: "久未动", stage: "drafting", status: "draft" }, Date.now() - 30 * DAY),
+  ];
+  const plugin = await makePlugin({ desktop: true, pages });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  const legend = findAll(view.contentEl, (el) => el.classes?.has("launchpad-flow-legend-item"));
+  assert.ok(legend.length >= 2, `图例项过少：${legend.length}`);
+  assert.ok(legend.some((el) => el.allText().includes("起草中") && el.allText().includes("1")), legend.map((el) => el.allText()).join(" / "));
+  const ages = findAll(view.contentEl, (el) => el.classes?.has("launchpad-stuck-days"));
+  const old = ages.find((el) => el.textContent.startsWith("30 天"));
+  assert.ok(old, `应显示 30 天未动：${ages.map((el) => el.textContent).join("、")}`);
+  assert.ok(old.classes.has("is-warning"), "发布前阶段 30 天未动应为警示");
+});
+
+test("知识页：活动卡片叫「近 7 天更新」，没有类型的写「未标类型」", async () => {
+  const pages = [...makePages(), page("Topics/self-media/notes/无类型.md", {}, Date.now() - 1 * DAY)];
+  const plugin = await makePlugin({ desktop: true, pages });
+  const { view } = await renderView(plugin, "crisp-launchpad-view");
+  const text = view.contentEl.allText();
+  assert.ok(text.includes("近 7 天更新"));
+  assert.ok(!text.includes("本周知识库活动"));
+  assert.ok(text.includes("未标类型") && !text.includes("（无 type）"));
+});
+
+// Failure mode: after a plugin update the old Launchpad tab is still being restored when
+// onLayoutReady runs, so getLeavesOfType is empty and a second Launchpad tab was opened.
+test("打开启动台：原标签还在恢复中时复用它，不新开第二个", async () => {
+  const plugin = await makePlugin({ desktop: true });
+  let created = 0;
+  let revealed = null;
+  const restoring = { getViewState: () => ({ type: "crisp-launchpad-view" }) };
+  plugin.app.workspace.getLeavesOfType = () => [];
+  plugin.app.workspace.iterateAllLeaves = (fn) => { fn({ getViewState: () => ({ type: "markdown" }) }); fn(restoring); };
+  plugin.app.workspace.getLeaf = () => { created++; return { setViewState: async () => {} }; };
+  plugin.app.workspace.revealLeaf = (leaf) => { revealed = leaf; };
+  await plugin.activateView();
+  assert.equal(created, 0, "不应新开标签");
+  assert.equal(revealed, restoring, "应显示原来的标签");
+});

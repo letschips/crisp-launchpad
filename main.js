@@ -115,6 +115,10 @@ const AUTO_ROUTE_COOLDOWN_MS = 2500;
 const AUTO_HEALTH_REBUILD_MS = 90 * 1000;
 const REVIEW_DONE_COOLDOWN_DAYS = 14;
 const PULSE_PLUGIN_ID = "crisp-pulse";
+/* ANKS health 的 STALE_INBOX：vault_sweeper 里未归位且超过 3 天的材料。和「待整理」（全部未归位）不是一个数。 */
+const STALE_INBOX_LABEL = "超过 3 天未整理";
+/* 发布前的阶段超过这么多天没动，项目行标警示色。 */
+const STUCK_WARNING_DAYS = 14;
 const PULSE_REFRESH_DEBOUNCE_MS = 1500;
 const PAGES = [
   { id: "today", name: "今天" },
@@ -168,7 +172,7 @@ const LAUNCHPAD_PROFILES = {
     heroTitle: "行动工作台",
     tabs: ["today", "system"],
     features: { create: false, review: false, kernelPill: false, workGrid: false, completionStats: false },
-    /* 只剩「本周动过」：其余 KPI 都指向 ANKS 的对象层，陌生库里恒为 0 且点开是「未找到」 */
+    /* 只剩「近 7 天更新」：其余 KPI 都指向 ANKS 的对象层，陌生库里恒为 0 且点开是「未找到」 */
     kpis: ["active"],
   },
 };
@@ -276,7 +280,7 @@ const KPI_DEFINITIONS = {
   knowledge: { label: "知识对象", hint: "source/knowledge 等", path: "Topics/{topic}/knowledge" },
   raw: { label: "原始素材", hint: "raw 证据层", path: "Topics/{topic}/raw" },
   outputs: { label: "产出", hint: "output 交付物", path: "Topics/{topic}/outputs" },
-  active: { label: "本周动过", hint: "7 天内变更", path: "Topics" },
+  active: { label: "近 7 天更新", hint: "7 天内变更", path: "Topics" },
 };
 
 /* 主 Topic：优先内容 Topic，其次知识 Topic，再其次任意 Topic；保留旧默认值以兼容
@@ -1366,6 +1370,18 @@ function insetCardBodies(root) {
   }
 }
 
+/* 「self-media 51 · main-business 1」：按 Topic 数，多的在前；只有一个 Topic 时只写名字。 */
+function topicBreakdown(pages) {
+  const counts = new Map();
+  for (const page of pages || []) {
+    const topic = inferTopicFromPath(page.path) || "其他";
+    counts.set(topic, (counts.get(topic) || 0) + 1);
+  }
+  const entries = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (entries.length <= 1) return entries[0]?.[0] || "";
+  return entries.map(([topic, count]) => `${topic} ${count}`).join(" · ");
+}
+
 function formatScore(value) {
   const number = Number(value) || 0;
   return Number.isInteger(number) ? String(number) : number.toFixed(1);
@@ -1880,18 +1896,23 @@ class LaunchpadRenderer {
     const topic = primaryTopic(this.capabilities);
     const prefix = topic ? `Topics/${topic}/` : "";
     const contentRoot = contentProjectsPath(primaryContentTopic(this.capabilities));
+    /* 除内容项目外都按全库各 Topic 合计，副标题写分布；「待整理」和今天一行、待整理卡片同一个数。 */
+    const inTopics = (pages) => pages.filter((page) => page.path.startsWith("Topics/"));
+    const groups = {
+      inbox: data.inbox,
+      knowledge: inTopics(data.knowledge),
+      raw: inTopics(data.raw),
+      outputs: inTopics(data.outputs),
+      active: inTopics(data.active),
+    };
     const values = {
       projects: data.articles.filter((page) => contentRoot && page.path.startsWith(`${contentRoot}/`)).length,
-      inbox: data.inbox.filter((page) => prefix && page.path.startsWith(prefix)).length,
-      knowledge: data.knowledge.filter((page) => prefix && page.path.startsWith(prefix)).length,
-      raw: data.raw.filter((page) => prefix && page.path.startsWith(prefix)).length,
-      outputs: data.outputs.filter((page) => prefix && page.path.startsWith(prefix)).length,
-      active: data.active.filter((page) => page.path.startsWith("Topics/")).length,
+      ...Object.fromEntries(Object.entries(groups).map(([key, pages]) => [key, pages.length])),
     };
     const keys = (this.profile.kpis || Object.keys(KPI_DEFINITIONS)).filter((key) => KPI_DEFINITIONS[key]);
     const kpis = keys.map((key) => {
       const definition = KPI_DEFINITIONS[key];
-      const scope = key === "active" ? "全部 Topic" : (key === "projects" ? primaryContentTopic(this.capabilities) : topic);
+      const scope = key === "projects" ? primaryContentTopic(this.capabilities) : topicBreakdown(groups[key]) || "—";
       return [values[key], definition.label, scope, resolveKpiTarget(definition.path, this.capabilities)];
     }).filter(([, , , target]) => target);
     if (!kpis.length) return;
@@ -2182,37 +2203,46 @@ class LaunchpadRenderer {
     const topic = primaryTopic(this.capabilities);
     const topicPrefix = topic ? `Topics/${topic}/` : "";
     const topicCapabilities = this.capabilities?.perTopic?.[topic] || {};
-    const inboxPages = this.summary.inbox.filter((page) => topicPrefix && page.path.startsWith(topicPrefix));
+    /* 全库未归位材料，和今天一行、KPI 同一个数；多个 Topic 时每行标 Topic。 */
+    const inboxPages = [...this.summary.inbox].sort((left, right) => (right.mtime || 0) - (left.mtime || 0));
+    const multiTopic = new Set(inboxPages.map((page) => inferTopicFromPath(page.path))).size > 1;
     const grid = parent.createDiv({ cls: "launchpad-grid-2" });
-    const inboxCard = grid.createDiv({ cls: "launchpad-card" });
+    const inboxCard = grid.createDiv({ cls: "launchpad-card launchpad-inbox-card" });
     const inboxHeader = inboxCard.createDiv({ cls: "launchpad-card-header" });
     const inboxTitle = inboxHeader.createDiv({ cls: "launchpad-card-title" });
     addIcon(inboxTitle, "inbox");
     inboxTitle.createSpan({ text: "待整理" });
-    inboxTitle.createSpan({ cls: "launchpad-badge", text: "raw/inbox" });
+    inboxTitle.createSpan({ cls: "launchpad-badge", text: `${inboxPages.length} 条` });
     if (topicCapabilities.inboxPath) {
       const inboxBtn = addButton(inboxHeader, "收件箱 ↗");
       inboxBtn.addEventListener("click", () => this.view.openTarget(topicCapabilities.inboxPath, "收件箱"));
     }
     const inboxList = inboxCard.createDiv({ cls: "launchpad-breakdown-card" });
-    if (!topicCapabilities.inboxPath) {
-      this.renderEmpty(inboxList, "该 Topic 尚未配置 raw/inbox");
-    } else if (!inboxPages.length) {
-      this.renderEmpty(inboxList, "收件箱是空的 · 没有积压");
+    if (!inboxPages.length) {
+      this.renderEmpty(inboxList, "没有待整理的材料");
     } else {
-      for (const page of inboxPages.slice(0, 6)) {
+      const renderInboxRow = (page) => {
         const row = inboxList.createDiv({ cls: "launchpad-breakdown-row" });
         const left = row.createDiv({ cls: "launchpad-row-left" });
         left.createDiv({ cls: "launchpad-row-title", text: page.name });
         const right = row.createDiv({ cls: "launchpad-row-right" });
+        if (multiTopic) right.createSpan({ text: inferTopicFromPath(page.path) });
         const age = daysBetween(new Date(), page.mtime);
-        right.createSpan({ text: age === null ? "时间未知" : `${age} 天前` });
+        right.createSpan({ text: age === null ? "时间未知" : age === 0 ? "今天" : `${age} 天前` });
         const convert = addButton(right, "转化", "launchpad-row-action");
         convert.addEventListener("click", (event) => {
           event.stopPropagation();
           new InboxConversionModal(this.app, this.plugin, this.view, page).open();
         });
         makeClickable(row, () => this.view.openTarget(page.path, page.name), `打开待整理：${page.name}`);
+      };
+      inboxPages.slice(0, 6).forEach(renderInboxRow);
+      if (inboxPages.length > 6) {
+        const more = addButton(inboxList, `查看全部 ${inboxPages.length} 条`, "launchpad-row-action launchpad-list-more");
+        more.addEventListener("click", () => {
+          more.remove();
+          inboxPages.slice(6).forEach(renderInboxRow);
+        });
       }
     }
 
@@ -2341,7 +2371,7 @@ class LaunchpadRenderer {
     const groups = [
       ...[...writebackCounts.entries()].map(([label, count]) => [count, label]),
       [queues.reviewingProjects.length, "内容待复盘"],
-      [queues.staleInbox.length, "收件箱待检查"],
+      [queues.staleInbox.length, STALE_INBOX_LABEL],
     ];
     const pending = groups.filter(([count]) => count > 0);
     const card = parent.createDiv({ cls: "launchpad-card" });
@@ -2441,17 +2471,30 @@ class LaunchpadRenderer {
     const flowTitle = flowHeader.createDiv({ cls: "launchpad-card-title" });
     addIcon(flowTitle, "content");
     flowTitle.createSpan({ text: "内容流向" });
-    flowTitle.createSpan({ cls: "launchpad-badge", text: "按阶段分布" });
     flowHeader.createDiv({ cls: "launchpad-badge", text: `共 ${articles.length} 个内容项目` });
     const total = buckets.reduce((sum, [, rows]) => sum + rows.length, 0);
     const bar = flowCard.createDiv({ cls: "launchpad-dist-bar" });
-    const strengths = ["95%", "72%", "52%", "34%", "20%"];
+    const legend = flowCard.createDiv({ cls: "launchpad-flow-legend" });
+    /* 同一种强调色按阶段先后由深到浅；每段都在图例里写出阶段名和数量，点图例跳到流水线里的该阶段。 */
+    const stageGroups = new Map();
     buckets.forEach(([stage, rows], index) => {
+      const strength = buckets.length > 1 ? Math.round(95 - (index * 75) / (buckets.length - 1)) : 80;
+      const color = `color-mix(in srgb, var(--interactive-accent) ${strength}%, transparent)`;
       const segment = bar.createDiv({ cls: "launchpad-dist-seg" });
       segment.style.width = total ? `${(rows.length / total) * 100}%` : "0";
-      segment.style.background = `color-mix(in srgb, var(--interactive-accent) ${strengths[index % strengths.length]}, transparent)`;
-      segment.title = `${STAGE_LABEL[stage] || stage} · ${rows.length}`;
+      segment.style.background = color;
+      const item = legend.createDiv({ cls: "launchpad-flow-legend-item" });
+      const swatch = item.createSpan({ cls: "launchpad-flow-swatch" });
+      swatch.style.background = color;
+      item.createSpan({ text: stageLabel(stage) });
+      item.createSpan({ cls: "launchpad-flow-count", text: String(rows.length) });
+      makeClickable(item, () => stageGroups.get(stage)?.scrollIntoView?.({ block: "start", behavior: "smooth" }), `${stageLabel(stage)} ${rows.length} 篇`);
     });
+    const updatedByDir = new Map(
+      (Array.isArray(this.snapshots.content?.data) ? this.snapshots.content.data : [])
+        .map((project) => [textOr(project?.dir), Date.parse(textOr(project?.updated_at))]),
+    );
+    const today = new Date();
 
     const pipeline = this.panels.create.createDiv({ cls: "launchpad-card" });
     const pipelineHeader = pipeline.createDiv({ cls: "launchpad-card-header launchpad-pipeline-header" });
@@ -2488,6 +2531,8 @@ class LaunchpadRenderer {
     const list = pipeline.createDiv({ cls: "launchpad-breakdown-card" });
     for (const [stage, rows] of buckets) {
       const groupRow = list.createDiv({ cls: "launchpad-breakdown-row" });
+      stageGroups.set(stage, groupRow);
+      const prePublish = STAGE_ORDER.indexOf(stage) >= 0 && STAGE_ORDER.indexOf(stage) < STAGE_ORDER.indexOf("reviewing");
       const groupLeft = groupRow.createDiv({ cls: "launchpad-row-left" });
       groupLeft.createDiv({
         cls: `launchpad-badge${stage === "reviewing" ? " is-accent" : ""}`,
@@ -2501,6 +2546,14 @@ class LaunchpadRenderer {
         left.createDiv({ cls: "launchpad-row-title", text: articleLabel(article) });
         const right = row.createDiv({ cls: "launchpad-row-right" });
         if (article.platform) right.createSpan({ text: article.platform });
+        /* 几天没动：内容快照的 updated_at，没有时用文件修改时间。 */
+        const updated = updatedByDir.get(article.folder);
+        const idle = daysBetween(today, Number.isFinite(updated) ? updated : article.mtime);
+        if (idle !== null) {
+          const stale = prePublish && idle >= STUCK_WARNING_DAYS;
+          const ageEl = right.createSpan({ cls: `launchpad-stuck-days${stale ? " is-warning" : ""}`, text: idle === 0 ? "今天动过" : `${idle} 天未动` });
+          if (stale) ageEl.setAttribute("aria-label", `在「${stageLabel(stage)}」停了 ${idle} 天`);
+        }
         if (article.status) right.createSpan({ cls: "launchpad-badge", text: contentStatusLabel(article.status) });
         const advance = addButton(right, "推进", "launchpad-row-action");
         advance.addEventListener("click", (event) => {
@@ -2578,16 +2631,16 @@ class LaunchpadRenderer {
     const header = card.createDiv({ cls: "launchpad-card-header" });
     const title = header.createDiv({ cls: "launchpad-card-title" });
     addIcon(title, "activity");
-    title.createSpan({ text: "本周知识库活动" });
-    header.createDiv({ cls: "launchpad-badge", text: "按对象类型" });
+    title.createSpan({ text: "近 7 天更新" });
+    title.createSpan({ cls: "launchpad-badge", text: `${this.summary.active.length} 篇` });
     const counts = new Map();
     for (const page of this.summary.active) {
-      const type = page.type || "（无 type）";
+      const type = page.type || "未标类型";
       counts.set(type, (counts.get(type) || 0) + 1);
     }
     const chips = card.createDiv({ cls: "launchpad-action-group-buttons" });
     if (!counts.size) {
-      chips.createDiv({ cls: "launchpad-breakdown-row is-empty", text: "本周没有变更" });
+      chips.createDiv({ cls: "launchpad-breakdown-row is-empty", text: "近 7 天没有更新" });
     } else {
       for (const [type, count] of [...counts.entries()].sort((left, right) => right[1] - left[1])) {
         chips.createSpan({ cls: "launchpad-badge", text: `${type} ${count}` });
@@ -2599,7 +2652,7 @@ class LaunchpadRenderer {
       const left = row.createDiv({ cls: "launchpad-row-left" });
       left.createDiv({ cls: "launchpad-row-title", text: page.name });
       const right = row.createDiv({ cls: "launchpad-row-right" });
-      right.createSpan({ text: page.type || "—" });
+      right.createSpan({ text: page.type || "未标类型" });
       right.createSpan({ cls: "launchpad-badge", text: formatDateTime(page.mtime) });
       makeClickable(row, () => this.view.openTarget(page.path, page.name), `打开：${page.name}`);
     }
@@ -2645,7 +2698,7 @@ class LaunchpadRenderer {
       [tasks.filter((task) => task.bucket === "waiting").length, "等待", "需要跟进阻塞"],
       [completedTasks.length, "已完成", "今天在 Tempo 完成"],
       [writebacks.length, "待回写与复核", "判断哪些产出需要沉淀"],
-      [staleInbox.length, "积压收件箱", "检查仍待整理的材料"],
+      [staleInbox.length, STALE_INBOX_LABEL, "ANKS 健康检查列出的积压"],
     ]) {
       const metric = metrics.createDiv({ cls: "launchpad-review-metric" });
       metric.createDiv({ cls: "launchpad-review-metric-value", text: String(value) });
@@ -2718,10 +2771,10 @@ class LaunchpadRenderer {
     const inboxHeader = inboxCard.createDiv({ cls: "launchpad-card-header" });
     const inboxTitle = inboxHeader.createDiv({ cls: "launchpad-card-title" });
     addIcon(inboxTitle, "inbox");
-    inboxTitle.createSpan({ text: "收件箱积压" });
+    inboxTitle.createSpan({ text: STALE_INBOX_LABEL });
     inboxHeader.createDiv({
       cls: `launchpad-badge${staleInbox.length ? " is-accent" : ""}`,
-      text: `${staleInbox.length} 条待检查`,
+      text: `${staleInbox.length} 条`,
     });
     const inboxList = inboxCard.createDiv({ cls: "launchpad-breakdown-card" });
     if (!staleInbox.length) {
@@ -4232,8 +4285,8 @@ class CrispLaunchpadPlugin extends Plugin {
     window.clearTimeout(this.autoSyncTimer);
     window.clearTimeout(this.pulseRefreshTimer);
     this.cancelHealthRebuild();
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE_LAUNCHPAD);
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE_PANEL);
+    /* 不在卸载时关掉视图：Obsidian 会保留标签位置，插件重新加载（更新）后原地恢复。
+       关掉再重开会把启动台挪到最后一个标签。 */
   }
 
   async loadSettings() {
@@ -4418,8 +4471,20 @@ class CrispLaunchpadPlugin extends Plugin {
     new Notice(`Crisp Launchpad：自动事件桥 · ${message}`, 8000);
   }
 
+  /* 插件更新后原来的标签要过一会儿才恢复成启动台视图，这时 getLeavesOfType 还找不到它；
+     再按布局里记的视图类型找一遍，避免新开第二个标签。 */
+  findLeafOfType(type) {
+    const live = this.app.workspace.getLeavesOfType(type)[0];
+    if (live) return live;
+    let restoring = null;
+    this.app.workspace.iterateAllLeaves?.((leaf) => {
+      if (!restoring && leaf.getViewState?.()?.type === type) restoring = leaf;
+    });
+    return restoring;
+  }
+
   async activateView() {
-    let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_LAUNCHPAD)[0];
+    let leaf = this.findLeafOfType(VIEW_TYPE_LAUNCHPAD);
     if (!leaf) {
       leaf = this.app.workspace.getLeaf("tab");
       await leaf.setViewState({ type: VIEW_TYPE_LAUNCHPAD, active: true });
@@ -4428,7 +4493,7 @@ class CrispLaunchpadPlugin extends Plugin {
   }
 
   async activatePanelView() {
-    let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_PANEL)[0];
+    let leaf = this.findLeafOfType(VIEW_TYPE_PANEL);
     if (!leaf) {
       leaf = this.app.workspace.getRightLeaf(false) || this.app.workspace.getLeaf("tab");
       await leaf.setViewState({ type: VIEW_TYPE_PANEL, active: true });
@@ -4815,8 +4880,17 @@ class CrispLaunchpadPlugin extends Plugin {
     this.runTempoCommand("open-tempo-view");
   }
 
-  /* 新建行动用 Tempo 自己的快速新建：日期、项目、估时都在那边。 */
-  openNewAction() {
+  /* 新建行动用 Tempo 的新建弹窗：Tempo 0.14.0 起直接弹在当前页面，不跳到 Tempo；
+     旧版或未激活时退回 Tempo 的快速新建命令（会打开 Tempo，并在未激活时提示）。 */
+  async openNewAction() {
+    const tempo = this.tempoApi();
+    if (tempo && typeof tempo.openQuickAddModal === "function") {
+      try {
+        if (await tempo.openQuickAddModal()) return;
+      } catch (error) {
+        console.warn("[Crisp Launchpad] Tempo quick add dialog failed:", error);
+      }
+    }
     this.runTempoCommand("quick-add-task");
   }
 

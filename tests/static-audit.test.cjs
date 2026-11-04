@@ -143,3 +143,11 @@ test("Static Audit: mobile quick capture stacks the content field at full width"
   assert.match(textareaRule, /width:\s*100%/);
   assert.match(textareaRule, /max-width:\s*none/);
 });
+
+// Failure mode: detaching leaves in onunload moves the Launchpad tab to the end on every plugin update.
+test("Static Audit: onunload does not detach the plugin's views", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "main.js"), "utf8");
+  const body = source.slice(source.indexOf("  onunload() {"), source.indexOf("  async loadSettings() {"));
+  assert.ok(body.length > 0, "onunload not found");
+  assert.ok(!body.includes("detachLeavesOfType"), "onunload must not detach leaves");
+});

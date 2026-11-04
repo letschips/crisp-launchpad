@@ -2078,3 +2078,42 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   .crisp-launchpad-view .launchpad-today-item:nth-child(3n + 1)::before { display: none; }
   .crisp-launchpad-view .launchpad-today-value { font-size: 18px; }
 }
+
+/* ==========================================================================
+   0.7.0 创作页图例、几天未动、待整理展开
+   ========================================================================== */
+.crisp-launchpad-view .launchpad-flow-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: -4px -6px 0;
+}
+.crisp-launchpad-view .launchpad-flow-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color var(--crisp-dur-fast) var(--crisp-ease), color var(--crisp-dur-fast) var(--crisp-ease);
+}
+.crisp-launchpad-view .launchpad-flow-legend-item:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.crisp-launchpad-view .launchpad-flow-legend-item:focus-visible { outline: 2px solid color-mix(in srgb, var(--lp-accent) 70%, transparent); outline-offset: 1px; }
+.crisp-launchpad-view .launchpad-flow-swatch { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.crisp-launchpad-view .launchpad-flow-count { font-family: var(--font-monospace); font-size: 12px; color: var(--text-normal); }
+.crisp-launchpad-view .launchpad-dist-bar { gap: 2px; display: flex; }
+.crisp-launchpad-view .launchpad-dist-seg:first-child { border-radius: 4px 0 0 4px; }
+.crisp-launchpad-view .launchpad-dist-seg:last-child { border-radius: 0 4px 4px 0; }
+
+.crisp-launchpad-view .launchpad-stuck-days {
+  font-family: var(--font-monospace);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.crisp-launchpad-view .launchpad-stuck-days.is-warning { color: var(--color-orange); }
+
+.crisp-launchpad-view .launchpad-inbox-card .launchpad-row-right { flex-shrink: 0; }
+.crisp-launchpad-view button.launchpad-list-more { align-self: center; margin-top: 8px; }
