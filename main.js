@@ -376,6 +376,9 @@ const CAPTURE_TYPES = [
   { id: "link", name: "链接" },
 ];
 const KNOWLEDGE_TYPES = ["source", "knowledge", "concept", "entity", "method", "framework"];
+const AUXILIARY_CONTENT_ROLES = new Set([
+  "project-control", "publish-record", "title-candidates", "qa", "delivery-summary", "metrics",
+]);
 /* 热力图按天展开时，把对象类型压成人能读的标签。 */
 const PAGE_TYPE_LABEL = {
   raw: "原始素材",
@@ -844,6 +847,22 @@ function updateExistingFrontmatterFields(content, fields) {
   return `${match[1]}${frontmatter}${match[3]}${source.slice(match[0].length)}`;
 }
 
+/* Markdown 文件只改 frontmatter：有就替换，没有就加在 frontmatter 末尾；没有 frontmatter 时新建一块。
+   updateProjectField 只用于纯 YAML 的 project.yaml，用在 .md 上会把字段追加到正文最后。 */
+function upsertFrontmatterFields(content, fields) {
+  const source = String(content ?? "");
+  const match = /^(---\r?\n)([\s\S]*?)(\r?\n---(?:\r?\n|$))/.exec(source);
+  let frontmatter = match ? match[2] : "";
+  for (const [key, value] of Object.entries(fields || {})) {
+    const line = `${key}: ${formatYamlScalar(value)}`;
+    const pattern = new RegExp(`^${key}:.*$`, "m");
+    if (pattern.test(frontmatter)) frontmatter = frontmatter.replace(pattern, line);
+    else frontmatter = frontmatter ? `${frontmatter}\n${line}` : line;
+  }
+  if (match) return `${match[1]}${frontmatter}${match[3]}${source.slice(match[0].length)}`;
+  return `---\n${frontmatter}\n---\n${source}`;
+}
+
 function publishRecordContent(body, contentId, date, topic = "self-media", platform = "wechat") {
   return [
     "---",
@@ -889,7 +908,17 @@ function publishRecordContent(body, contentId, date, topic = "self-media", platf
   ].join("\n");
 }
 
-function markProcessedContent(content, now = new Date(), topic = "self-media") {
+/* 和 ANKS capture_normalize.INBOX_SUBDIR_ROUTING 同一张表；收件箱根目录按 scratch 算，to-organize 不补。 */
+function inboxTypeForPath(path) {
+  const match = /\/raw\/inbox\/(?:([^/]+)\/)?[^/]+$/.exec(String(path ?? ""));
+  if (!match) return "";
+  if (!match[1]) return "scratch";
+  return { scratch: "scratch", ideas: "idea", links: "link" }[match[1]] || "";
+}
+
+/* 标为已处理：去掉捕获时的 routing_confidence / routing_reason（留着的话 ANKS 路由器按低置信度
+   一直报 UNROUTABLE_NOTE，而待整理里已看不到它）；缺 inbox_type 时按所在收件箱子目录补上。 */
+function markProcessedContent(content, now = new Date(), topic = "self-media", inboxType = "") {
   const stamp = formatFullDateTime(now);
   const source = String(content ?? "");
   const cleanTopic = sanitizeTitle(topic, "").replace(/\s+/g, "-");
@@ -903,7 +932,7 @@ function markProcessedContent(content, now = new Date(), topic = "self-media") {
       const head = source.slice(headStart, end);
       const tail = source.slice(headStart + endMatch.index + endMatch[0].length);
       const lines = head.split(/\r?\n/).filter(
-        (line) => !/^routing_status\s*:/.test(line) && !/^launchpad_processed_at\s*:/.test(line),
+        (line) => !/^(routing_status|routing_confidence|routing_reason|launchpad_processed_at)\s*:/.test(line),
       );
       const title = firstMeaningfulLine(tail) || firstMeaningfulLine(source) || "未命名笔记";
       if (!lines.some((line) => /^type\s*:/.test(line))) {
@@ -918,6 +947,9 @@ function markProcessedContent(content, now = new Date(), topic = "self-media") {
       if (!lines.some((line) => /^title\s*:/.test(line))) {
         lines.push(`title: ${yamlQuote(title)}`);
       }
+      if (inboxType && !lines.some((line) => /^inbox_type\s*:/.test(line))) {
+        lines.push(`inbox_type: ${inboxType}`);
+      }
       lines.push("routing_status: processed", `launchpad_processed_at: ${yamlQuote(stamp)}`);
       return `---\n${lines.join("\n")}\n---\n${tail}`;
     }
@@ -929,6 +961,7 @@ function markProcessedContent(content, now = new Date(), topic = "self-media") {
     `topic: ${cleanTopic}`,
     `owner: ${yamlQuote(`topic:${cleanTopic}`)}`,
     `title: ${yamlQuote(title)}`,
+    ...(inboxType ? [`inbox_type: ${inboxType}`] : []),
     "routing_status: processed",
     `launchpad_processed_at: ${yamlQuote(stamp)}`,
     "---",
@@ -975,7 +1008,14 @@ function isPulseMemoCapture(page) {
 function summarizePages(pages, now = new Date()) {
   const knowledge = pages.filter((page) => KNOWLEDGE_TYPES.includes(page.type));
   const raw = pages.filter((page) => page.type === "raw");
-  const outputs = pages.filter((page) => page.type === "output");
+  /* 内容项目里的控制卡、发布记录、标题候选、QA 等和健康日志都带 type: output，但不是交付物，
+     和 ANKS calculate_active_wip 一样排除。 */
+  const outputs = pages.filter(
+    (page) =>
+      page.type === "output" &&
+      !AUXILIARY_CONTENT_ROLES.has(textOr(page.content_role)) &&
+      textOr(page.artifact_type ?? page.frontmatter?.artifact_type) !== "health_report",
+  );
   /* Crisp Pulse 的速记日文件不算：一个文件里有很多条速记，每条的去处由 Pulse 判断，
      今天一行和「待你判断」读 Pulse 的近 7 天没去处的条数。 */
   const inbox = pages.filter(
@@ -2270,9 +2310,18 @@ class LaunchpadRenderer {
     const topicCapabilities = this.capabilities?.perTopic?.[topic] || {};
     const projectRoot = contentProjectsPath(topic);
     const contentIndexTarget = topicCapabilities.contentIndexPath || topicCapabilities.contentProjectsPath;
-    const articles = this.summary.articles.filter(
-      (article) => projectRoot && article.path.startsWith(`${projectRoot}/`),
+    /* 阶段和状态以控制卡 project.md 为准（推进弹窗、复盘页、ANKS 都读它），article.md 只提供标题和打开目标。 */
+    const controlByFolder = new Map(
+      (this.pages || [])
+        .filter((page) => page.content_role === "project-control" && page.stage)
+        .map((page) => [page.folder, page]),
     );
+    const articles = this.summary.articles
+      .filter((article) => projectRoot && article.path.startsWith(`${projectRoot}/`))
+      .map((article) => {
+        const control = controlByFolder.get(article.folder);
+        return control ? { ...article, stage: control.stage, status: control.status || article.status } : article;
+      });
     const profiles = topicCapabilities.profiles?.[platform] || [];
     const canCreateProject = Boolean(topic && platform && profiles.length);
     const buckets = buildStageBuckets(articles);
@@ -2442,9 +2491,12 @@ class LaunchpadRenderer {
     const title = header.createDiv({ cls: "launchpad-card-title" });
     addIcon(title, "activity");
     title.createSpan({ text: "近 7 天更新" });
-    title.createSpan({ cls: "launchpad-badge", text: `${this.summary.active.length} 篇` });
+    /* 和上方 KPI「近 7 天更新」同一口径：有 Topics/ 时只算 Topics/ 下的笔记。 */
+    const hasTopics = Array.isArray(this.capabilities?.topics) && this.capabilities.topics.length > 0;
+    const active = hasTopics ? this.summary.active.filter((page) => page.path.startsWith("Topics/")) : this.summary.active;
+    title.createSpan({ cls: "launchpad-badge", text: `${active.length} 篇` });
     const counts = new Map();
-    for (const page of this.summary.active) {
+    for (const page of active) {
       const type = page.type || "未标类型";
       counts.set(type, (counts.get(type) || 0) + 1);
     }
@@ -2457,7 +2509,7 @@ class LaunchpadRenderer {
       }
     }
     const list = card.createDiv({ cls: "launchpad-breakdown-card" });
-    for (const page of [...this.summary.active].sort((left, right) => right.mtime - left.mtime).slice(0, 6)) {
+    for (const page of [...active].sort((left, right) => right.mtime - left.mtime).slice(0, 6)) {
       const row = list.createDiv({ cls: "launchpad-breakdown-row" });
       const left = row.createDiv({ cls: "launchpad-row-left" });
       left.createDiv({ cls: "launchpad-row-title", text: page.name });
@@ -2960,12 +3012,14 @@ class CrispPanelRenderer {
       text: "捕获 → 待整理 → 行动 · Tempo 为唯一行动源",
     });
     const stats = header.createDiv({ cls: "crisp-panel-stats" });
+    // 没连上 Tempo 时行动数不可知，显示「—」而不是 0。
+    const tempo = this.plugin.usesTempo();
     for (const [value, label] of [
       [
-        openTasks.filter((task) => task.bucket === "overdue" || task.bucket === "today").length,
+        tempo ? openTasks.filter((task) => task.bucket === "overdue" || task.bucket === "today").length : "—",
         "今天",
       ],
-      [openTasks.filter((task) => task.bucket === "waiting").length, "等待"],
+      [tempo ? openTasks.filter((task) => task.bucket === "waiting").length : "—", "等待"],
       [this.triageTotal, "全库待整理"],
     ]) {
       const stat = stats.createDiv({ cls: "crisp-panel-stat" });
@@ -2975,6 +3029,12 @@ class CrispPanelRenderer {
   }
 
   renderToday(parent) {
+    if (!this.plugin.usesTempo()) {
+      const section = parent.createDiv({ cls: "crisp-panel-section" });
+      section.createDiv({ cls: "crisp-panel-section-title" }).createSpan({ text: "今天要做" });
+      section.createDiv({ cls: "crisp-panel-list" }).createDiv({ cls: "crisp-panel-empty", text: TEMPO_REQUIRED_HINT });
+      return;
+    }
     const focus = this.tasks
       .filter((task) => !task.done && (task.bucket === "overdue" || task.bucket === "today"))
       .slice(0, 8);
@@ -3291,9 +3351,13 @@ class CrispPanelView extends ItemView {
   }
 
   async openTarget(target, label = "") {
+    // 和启动台一样：去空白，路径找不到时按链接名解析（书签里常是短链接）。
+    const normalized = textOr(target).trim();
+    if (!normalized) return false;
     const file =
-      this.app.vault.getAbstractFileByPath(target) ||
-      this.app.vault.getAbstractFileByPath(`${target}.md`);
+      this.app.vault.getAbstractFileByPath(normalized) ||
+      this.app.vault.getAbstractFileByPath(`${normalized}.md`) ||
+      this.app.metadataCache.getFirstLinkpathDest(normalized.replace(/\.md$/i, ""), "");
     if (file instanceof TFile) {
       await this.app.workspace.getLeaf(false).openFile(file);
       return true;
@@ -3305,7 +3369,7 @@ class CrispPanelView extends ItemView {
         return true;
       }
     }
-    new Notice(`Crisp 行动面板：未找到「${label || target}」`);
+    new Notice(`Crisp 行动面板：未找到「${label || normalized}」`);
     return false;
   }
 }
@@ -3701,14 +3765,14 @@ class ContentProjectCreateModal extends Modal {
     create.addEventListener("click", async () => {
       try {
         create.disabled = true;
-        const created = await this.plugin.createContentProject({
+        const created = await this.plugin.withForegroundSync(() => this.plugin.createContentProject({
           title: this.title || this.slug,
           slug: this.slug || this.title,
           profile: this.profile,
           track: this.track,
           topic: this.topic,
           platform: this.platform,
-        });
+        }));
         new Notice(
           created.validation.status === "passed"
             ? `Crisp Launchpad：已创建 ${created.contentId} 并通过校验`
@@ -4237,6 +4301,12 @@ class CrispLaunchpadPlugin extends Plugin {
     if (this.autoSyncRunning || !this.settings.autoRouteEnabled || !this.canRunAnks()) {
       return;
     }
+    if (this.foregroundSyncDepth > 0) {
+      // 前台正在跑同样的命令：脏标记留着，稍后再来。
+      window.clearTimeout(this.autoSyncTimer);
+      this.autoSyncTimer = window.setTimeout(() => this.runEventBridgeSync(), AUTO_ROUTE_DEBOUNCE_MS);
+      return;
+    }
     const pending = { ...this.autoSyncDirty };
     this.autoSyncDirty = { actions: false, knowledge: false, snapshot: false };
     const indexTopics = [...(this.autoSyncIndexTopics || [])];
@@ -4584,7 +4654,7 @@ class CrispLaunchpadPlugin extends Plugin {
     if (!(file instanceof TFile)) throw new Error("原文不存在");
     const topic = strictTopicFromPath(file.path);
     if (!topic) throw new Error("原文不属于 Topics/，不能按 Topic 路由标记");
-    await this.app.vault.process(file, content => markProcessedContent(content, new Date(), topic));
+    await this.app.vault.process(file, content => markProcessedContent(content, new Date(), topic, inboxTypeForPath(file.path)));
   }
 
   async convertInboxToTopic(file) {
@@ -4908,10 +4978,22 @@ class CrispLaunchpadPlugin extends Plugin {
 
   async updateContentProject(projectDir, changes) {
     const pending = (this.contentWriteQueue || Promise.resolve()).catch(() => {}).then(
-      () => this.commitContentProject(projectDir, changes),
+      () => this.withForegroundSync(() => this.commitContentProject(projectDir, changes)),
     );
     this.contentWriteQueue = pending;
     return pending;
+  }
+
+  /* 新建、推进内容项目时自己会跑 control-card / index / snapshot。期间事件桥不启动，
+     结束后再按冷却期补跑一次，避免两组 anks 子进程同时写 project.md、index.md 和快照。 */
+  async withForegroundSync(fn) {
+    this.foregroundSyncDepth = (this.foregroundSyncDepth || 0) + 1;
+    try {
+      return await fn();
+    } finally {
+      this.foregroundSyncDepth -= 1;
+      if (!this.foregroundSyncDepth) this.autoSyncIgnoreUntil = Date.now() + AUTO_ROUTE_COOLDOWN_MS;
+    }
   }
 
   async commitContentProject(projectDir, { stage, status, nextAction }) {
@@ -4924,20 +5006,30 @@ class CrispLaunchpadPlugin extends Plugin {
     if (!(projectFile instanceof TFile)) throw new Error("project.yaml 不存在");
     const changes = [];
     // Prepare every new file before the first write. Keep the original bytes for recovery.
-    for (const name of ["project.yaml", "article.md", "publish.md"]) {
+    // project.md 是 project.yaml 的镜像且 anks_core 优先读它：一起改 frontmatter（只改已有键），
+    // 手写正文不被 --force 覆盖，移动端推进后也不会留下过期控制卡。
+    for (const name of ["project.yaml", "project.md", "article.md", "publish.md"]) {
       const file = vault.getAbstractFileByPath(`${projectDir}/${name}`);
       if (!(file instanceof TFile)) continue;
       const before = await vault.read(file);
-      let after = updateProjectField(before, "stage", stage);
-      if (name === "publish.md") after = before;
-      after = updateProjectField(after, "status", status);
-      after = updateProjectField(after, "updated_at", today);
-      if (name === "project.yaml") after = updateProjectField(after, "next_action", nextAction || "继续推进当前阶段");
+      const control = name === "project.yaml" || name === "project.md";
+      const fields = {};
+      if (name !== "publish.md") fields.stage = stage;
+      fields.status = status;
+      fields.updated_at = today;
+      if (control) fields.next_action = nextAction || "继续推进当前阶段";
       if (status === "published") {
-        after = updateProjectField(after, "publication_status", "live");
-        if (name === "publish.md" && !projectField(before, "published_at")) {
-          after = updateProjectField(after, "published_at", today);
-        }
+        fields.publication_status = "live";
+        // 「最近产出」读 article.md 的 published_at，所以两个 Markdown 文件都补上，已有的不改。
+        if (!control && !projectField(before, "published_at")) fields.published_at = today;
+      }
+      let after = before;
+      if (name === "project.yaml") {
+        for (const [key, value] of Object.entries(fields)) after = updateProjectField(after, key, value);
+      } else if (name === "project.md") {
+        after = updateExistingFrontmatterFields(before, fields);
+      } else {
+        after = upsertFrontmatterFields(before, fields);
       }
       changes.push({ file, before, after });
     }
@@ -4965,7 +5057,19 @@ class CrispLaunchpadPlugin extends Plugin {
     }
     if (this.canRunAnks()) {
       const projectId = String(projectDir || "").replace(/\/+$/, "").split("/").pop();
-      await this.syncContentArtifacts(projectId, { force: true, topic: contentTopicFromPath(projectDir) });
+      const topic = contentTopicFromPath(projectDir);
+      // 没有控制卡就物化一张；生成的卡照旧重建；手写过正文的只靠上面的 frontmatter 同步。
+      const card = changes.find((change) => change.file.path.endsWith("/project.md"));
+      if (!card || isGeneratedControlCard(card.after)) {
+        await this.syncContentArtifacts(projectId, { force: Boolean(card), topic });
+      } else {
+        await this.syncContentIndex(topic);
+      }
+      try {
+        await this.runAnks(["content", "validate", projectId, "--strict", "--json"]);
+      } catch (error) {
+        new Notice(`项目状态已保存，但 ANKS 校验未通过：${error.message || error}`, 10000);
+      }
       try { await this.refreshSystemSnapshots({ silent: true }); }
       catch (error) { new Notice(`项目状态已保存，快照刷新失败：${error.message || error}`); }
     }
@@ -5156,6 +5260,8 @@ module.exports.ROUTING_RULES_PATH = ROUTING_RULES_PATH;
 module.exports.inferTopicFromPath = inferTopicFromPath;
 module.exports.captureTargetTopic = captureTargetTopic;
 module.exports.markProcessedContent = markProcessedContent;
+module.exports.inboxTypeForPath = inboxTypeForPath;
+module.exports.upsertFrontmatterFields = upsertFrontmatterFields;
 module.exports.tempoSummaryToAction = tempoSummaryToAction;
 module.exports.launchpadActionSourceId = launchpadActionSourceId;
 module.exports.availableCrispTools = availableCrispTools;
