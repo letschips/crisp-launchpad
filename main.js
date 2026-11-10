@@ -1139,6 +1139,7 @@ const ROUTER_IGNORE_PREFIXES = [
   "wiki/",
   "Topics/self-media/content-projects/",
   "Topics/main-business/content-projects/",
+  "Topics/self-media/Landing Page/",
 ];
 
 const ROUTING_RULES_PATH = "Sidecar/tools/knowledge-router/routing-rules.toml";
