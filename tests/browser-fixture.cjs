@@ -22,7 +22,7 @@ module.exports = function installHostFixture() {
   raw.set('Sidecar/bin/anks','fixture');
   const overview=()=>({apiVersion:1,licensed:true,tasks:[...tasks.values()].filter(t=>t.status!=='done'||new Date(t.completedAt).toDateString()===new Date().toDateString()).map(t=>({...t,bucket:t.status==='done'?'done':'inbox'}))});
   const tempo={actionsApiVersion:1,getActionOverview:async()=>overview(),getCompletedOn:async date=>({date,tasks:[]}),createTaskFromSource:async input=>{let task=[...tasks.values()].find(t=>t.sourceId===input.sourceId);if(!task){task={...input,id:`t-${tasks.size}`,status:'todo'};tasks.set(task.id,task);}return task;},getTasksBySource:async ids=>Object.fromEntries([...tasks.values()].filter(t=>ids.includes(t.sourceId)).map(t=>[t.sourceId,t])),revealTask:async()=>{}};
-  class Plugin {async loadData(){return{openOnStartup:false,hasCompletedOnboarding:true};}async saveData(){}registerView(id,f){this.views.set(id,f);}registerEvent(){}addRibbonIcon(){}addCommand(){}addSettingTab(){}constructor(){this.views=new Map();}}
+  class Plugin {async loadData(){return{openOnStartup:false,hasCompletedOnboarding:true};}async saveData(){}registerView(id,f){this.views.set(id,f);}registerEvent(){}registerDomEvent(){}addRibbonIcon(){}addCommand(){}addSettingTab(){}constructor(){this.views=new Map();}}
   class ItemView {constructor(leaf){this.leaf=leaf;this.app=app;this.contentEl=document.body.createDiv();}}
   class Modal {constructor(app){this.app=app;this.contentEl=document.createElement('div');}open(){this.host=document.body.createDiv({cls:'modal-container'});this.host.append(this.contentEl);this.onOpen?.();}close(){this.onClose?.();this.host?.remove();}}
   class Notice {constructor(text){notices.push(text);}}

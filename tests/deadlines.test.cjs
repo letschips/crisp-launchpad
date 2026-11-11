@@ -87,3 +87,32 @@ test("due tone: overdue is its own tone, today to 3 days is soon, later is plain
   assert.equal(api.dueDaysLeft({ due: "2026-11-13", done: true }, "2026-11-11"), null);
   assert.equal(api.dueDaysLeft({ due: "" }, "2026-11-11"), null);
 });
+
+// 跨零点（0.10.1）。失败模式：
+// - Obsidian 开着过夜，倒计时和「今天」停在昨天；
+// - 同一天里反复重画；卸载后还在重画；
+// - 下一次检查排到了今天之内，或者排在零点之前。
+test("day rollover repaints once per new day and never after unload", () => {
+  let paints = 0;
+  const plugin = {
+    renderedDay: "2026-11-11",
+    unloaded: false,
+    refreshViews() { paints += 1; },
+    checkDayRollover: api.prototype.checkDayRollover,
+  };
+  assert.equal(plugin.checkDayRollover(new Date(2026, 10, 11, 23, 59, 59)), false);
+  assert.equal(paints, 0);
+  assert.equal(plugin.checkDayRollover(new Date(2026, 10, 12, 0, 0, 1)), true);
+  assert.equal(plugin.checkDayRollover(new Date(2026, 10, 12, 9, 0, 0)), false);
+  assert.equal(paints, 1);
+  plugin.unloaded = true;
+  assert.equal(plugin.checkDayRollover(new Date(2026, 10, 13, 0, 0, 1)), false);
+  assert.equal(paints, 1);
+});
+
+test("the next rollover check lands just after local midnight", () => {
+  assert.equal(api.msUntilNextDay(new Date(2026, 10, 11, 23, 59, 0)), 61000);
+  assert.equal(api.msUntilNextDay(new Date(2026, 10, 11, 0, 0, 0)), 86401000);
+  const late = new Date(2026, 11, 31, 12, 0, 0);
+  assert.equal(new Date(late.getTime() + api.msUntilNextDay(late)).getFullYear(), 2027);
+});

@@ -84,6 +84,7 @@ function installStub() {
         async saveData() {}
         registerView(type, factory) { this._views.set(type, factory); }
         registerEvent() { return {}; }
+        registerDomEvent() {}
         registerInterval(id) { return id; }
         addCommand(cmd) { this._commands.push(cmd); return cmd; }
         addRibbonIcon() { this._ribbons.push(1); return new FakeEl("div"); }

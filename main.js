@@ -1135,6 +1135,11 @@ function upcomingDeadlines(tasks, today = dateKey(new Date()), windowDays = DEAD
     .sort((left, right) => left.days - right.days || textOr(left.task.title).localeCompare(textOr(right.task.title), "zh"));
 }
 
+/* 到下一个本地零点过 1 秒还有多少毫秒：倒计时和「今天」要在换日后重画。 */
+function msUntilNextDay(now = new Date()) {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1).getTime() - now.getTime();
+}
+
 function actionItemMeta(item, today = dateKey(new Date())) {
   const days = dueDaysLeft(item, today);
   if (days !== null) return dueCountdownLabel(days);
@@ -4269,6 +4274,10 @@ class CrispLaunchpadPlugin extends Plugin {
         this.handleAutoRouteCandidate(file);
       }),
     );
+    /* 换日后重画：定时到零点；电脑睡过零点时定时器会晚到，窗口回到前台再查一次。 */
+    this.renderedDay = dateKey(new Date());
+    this.scheduleDayRollover();
+    this.registerDomEvent(window, "focus", () => this.checkDayRollover());
     this.app.workspace.onLayoutReady(async () => {
       if (this.unloaded) return;
       if (this.settings.openOnStartup) await this.activateView();
@@ -4284,6 +4293,7 @@ class CrispLaunchpadPlugin extends Plugin {
     window.clearTimeout(this.refreshTimer);
     window.clearTimeout(this.autoSyncTimer);
     window.clearTimeout(this.pulseRefreshTimer);
+    window.clearTimeout(this.dayRolloverTimer);
     this.cancelHealthRebuild();
     /* 不在卸载时关掉视图：Obsidian 会保留标签位置，插件重新加载（更新）后原地恢复。
        关掉再重开会把启动台挪到最后一个标签。 */
@@ -4529,6 +4539,26 @@ class CrispLaunchpadPlugin extends Plugin {
       this.pulseRefreshTimer = null;
       if (!this.unloaded) this.refreshViews();
     }, PULSE_REFRESH_DEBOUNCE_MS);
+  }
+
+  checkDayRollover(now = new Date()) {
+    if (this.unloaded) return false;
+    const day = dateKey(now);
+    if (day === this.renderedDay) return false;
+    this.renderedDay = day;
+    this.refreshViews();
+    return true;
+  }
+
+  scheduleDayRollover() {
+    window.clearTimeout(this.dayRolloverTimer);
+    if (this.unloaded) return;
+    this.dayRolloverTimer = window.setTimeout(() => {
+      this.checkDayRollover();
+      this.scheduleDayRollover();
+    }, msUntilNextDay());
+    /* Node（单元测试）里定时器是对象，别让它拖住进程；Obsidian 里是数字，这行不起作用。 */
+    this.dayRolloverTimer?.unref?.();
   }
 
   refreshViews() {
@@ -5316,6 +5346,7 @@ module.exports.dueCountdownLabel = dueCountdownLabel;
 module.exports.daysBetweenKeys = daysBetweenKeys;
 module.exports.dueDaysLeft = dueDaysLeft;
 module.exports.dueTone = dueTone;
+module.exports.msUntilNextDay = msUntilNextDay;
 module.exports.DEADLINE_WINDOW_DAYS = DEADLINE_WINDOW_DAYS;
 module.exports.buildStageBuckets = buildStageBuckets;
 module.exports.collectPages = collectPages;
