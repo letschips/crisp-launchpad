@@ -7,7 +7,7 @@
 | 插件 | 负责 | Launchpad 的做法 |
 | --- | --- | --- |
 | Launchpad | 系统状态、内容流水线、知识、复盘、待整理、插件入口 | 主体 |
-| Tempo | 行动的唯一来源 | 读 `getActionOverview()`；材料转行动走 `createTaskFromSource()`；「新建行动」用 `openQuickAddModal()` 在启动台原地弹出 Tempo 的新建弹窗（Tempo 0.14.0+，旧版退回快速新建命令）；点开走 `revealTask()`。完成、改期、删除只在 Tempo 里做 |
+| Tempo | 行动的唯一来源 | 读 `getActionOverview()`；材料转行动走 `createTaskFromSource()`；「新建行动」用 `openQuickAddModal()` 在启动台原地弹出 Tempo 的新建弹窗（Tempo 0.14.0+，旧版退回快速新建命令）；点开走 `revealTask()`。完成、改期、删除只在 Tempo 里做。唯一例外：内容项目的计划发布日（`planned_publish_at`）会建一条「发布：…」行动（来源 `crisp-launchpad:publish-<项目目录名>`，Tempo 0.17.0+），日期变了用 `rescheduleSourceTask()` 带原日期改期，Tempo 里被用户改过的日期不动 |
 | Pulse | 速记（每条速记的去处） | 速记入口打开 Pulse 速记；Pulse 没开时用 Launchpad 自带速记（只写 `raw/inbox`）。Pulse 的速记日文件（`capture_type: pulse-memo`）不算「待整理」；「速记待处理」读 `getMemoBacklog(7)`：近 7 天还没转成任务或笔记的条数，点开 `openMemoQuery` 只看这些（Pulse 1.43.0+） |
 | 其他 Crisp 插件 | 各自的功能 | 只放入口，只显示已启用的 |
 

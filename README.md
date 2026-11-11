@@ -15,6 +15,7 @@ only interfaces.
 - Two-layer cards and segmented tabs shared with Crisp Pulse.
 - Review rhythm from Crisp Pulse daily scores (7 / 30 / 90 days); unrecorded days are shown as gaps, not zeros.
 - System findings grouped by type, ordered by severity, with links to the page that handles them.
+- A content project's planned publish date becomes a dated "发布" action in Crisp Tempo (0.17.0+); the Create page counts down to it.
 - Quick capture (hands off to Crisp Pulse when enabled); new actions open Crisp Tempo's quick add.
 - One-click inbox conversion to action or topic card.
 - First-run onboarding and local environment repair.

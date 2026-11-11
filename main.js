@@ -1135,6 +1135,22 @@ function upcomingDeadlines(tasks, today = dateKey(new Date()), windowDays = DEAD
     .sort((left, right) => left.days - right.days || textOr(left.task.title).localeCompare(textOr(right.task.title), "zh"));
 }
 
+/* 内容项目的计划发布日（project.yaml 的 planned_publish_at）在 Tempo 里对应一条「发布：…」行动。
+   来源标识按项目目录名定，Tempo 按它去重；目录名不合 Tempo 的标识规则时返回空串，不同步。 */
+function contentPublishSourceId(projectId) {
+  const id = String(projectId ?? "");
+  return /^[A-Za-z0-9-]{1,120}$/.test(id) ? `crisp-launchpad:publish-${id}` : "";
+}
+
+/* 创作页项目行上的发布倒计时：{ text, tone }；已发布、没填或日期不对时返回 null。 */
+function publishCountdown(project, today = dateKey(new Date())) {
+  const planned = textOr(project?.planned_publish_at);
+  if (!isDateKey(planned) || project?.status === "published" || project?.publication_status === "live") return null;
+  const days = daysBetweenKeys(today, planned);
+  const text = days < 0 ? `已过计划发布日 ${-days} 天` : days === 0 ? "今天发布" : days === 1 ? "明天发布" : `距发布 ${days} 天`;
+  return { text, tone: dueTone(days) };
+}
+
 /* 到下一个本地零点过 1 秒还有多少毫秒：倒计时和「今天」要在换日后重画。 */
 function msUntilNextDay(now = new Date()) {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1).getTime() - now.getTime();
@@ -2473,6 +2489,13 @@ class LaunchpadRenderer {
           const ageEl = right.createSpan({ cls: `launchpad-stuck-days${stale ? " is-warning" : ""}`, text: idle === 0 ? "今天动过" : `${idle} 天未动` });
           if (stale) ageEl.setAttribute("aria-label", `在「${stageLabel(stage)}」停了 ${idle} 天`);
         }
+        /* 计划发布日记在控制卡 project.md 的 frontmatter 里（project.yaml 的镜像）。 */
+        const control = this.app.metadataCache?.getCache?.(`${article.folder}/project.md`)?.frontmatter;
+        const publish = publishCountdown({ planned_publish_at: control?.planned_publish_at, status: article.status, publication_status: article.publication_status });
+        if (publish) {
+          right.createSpan({ cls: `launchpad-action-due ${publish.tone}`.trim(), text: publish.text })
+            .setAttribute("title", `计划发布 ${control.planned_publish_at}`);
+        }
         if (article.status) right.createSpan({ cls: "launchpad-badge", text: contentStatusLabel(article.status) });
         const advance = addButton(right, "推进", "launchpad-row-action");
         advance.addEventListener("click", (event) => {
@@ -3761,6 +3784,29 @@ class LaunchpadOnboardingModal extends Modal {
   }
 }
 
+/* 新建和推进弹窗共用的「计划发布日」。填了会在 Tempo 建行动，所以留一句说明。 */
+function addPlannedPublishSetting(parent, plugin, value, onChange) {
+  new Setting(parent)
+    .setName("计划发布日")
+    .setDesc(plugin.tempoApi() ? "填了会在 Crisp Tempo 建一条带截止日期的「发布」行动" : "可选；启用 Crisp Tempo 后会同步成一条行动")
+    .addText((text) => {
+      text.inputEl.type = "date";
+      text.setValue(isDateKey(value) ? value : "").onChange(onChange);
+    });
+}
+
+/* 计划发布日同步到 Tempo 的结果里，需要用户知道的才提示。 */
+function noticePublishAction(action) {
+  const message = {
+    "no-tempo": "计划发布日已保存；没有启用 Crisp Tempo，未建行动",
+    "old-tempo": "计划发布日已保存；同步成行动需要 Crisp Tempo 0.17.0 或更高版本",
+    kept: "计划发布日已保存；Tempo 里那条行动的截止日期你改过，保持不变",
+    failed: `计划发布日已保存，但 Tempo 行动没有同步：${action?.message || "未知原因"}`,
+    "open-after-publish": "项目已发布，Tempo 里对应的「发布」行动还没标完成",
+  }[action?.status];
+  if (message) new Notice(`Crisp Launchpad：${message}`, 8000);
+}
+
 class ContentProjectCreateModal extends Modal {
   constructor(app, plugin, view, context = {}) {
     super(app);
@@ -3775,6 +3821,7 @@ class ContentProjectCreateModal extends Modal {
     this.slug = "";
     this.profile = this.profileOptions[0] || "";
     this.track = this.platform === "wechat" ? "obsidian" : "";
+    this.plannedPublishAt = "";
   }
 
   onOpen() {
@@ -3835,6 +3882,9 @@ class ContentProjectCreateModal extends Modal {
         text: "此模板尚未提供 profiles/*.yaml，无法创建项目。",
       });
     }
+    addPlannedPublishSetting(this.contentEl, this.plugin, "", (value) => {
+      this.plannedPublishAt = value;
+    });
     const actions = this.contentEl.createDiv({ cls: "launchpad-modal-actions" });
     const create = addButton(actions, "创建项目", "launchpad-btn is-primary");
     create.disabled = !this.canCreate;
@@ -3848,7 +3898,9 @@ class ContentProjectCreateModal extends Modal {
           track: this.track,
           topic: this.topic,
           platform: this.platform,
+          plannedPublishAt: this.plannedPublishAt,
         }));
+        noticePublishAction(created.publishAction);
         new Notice(
           created.validation.status === "passed"
             ? `Crisp Launchpad：已创建 ${created.contentId} 并通过校验`
@@ -3881,6 +3933,7 @@ class ContentProjectStageModal extends Modal {
     this.stage = "intake";
     this.status = "draft";
     this.nextAction = "";
+    this.plannedPublishAt = "";
   }
 
   async onOpen() {
@@ -3893,6 +3946,7 @@ class ContentProjectStageModal extends Modal {
       this.stage = projectField(content, "stage") || "intake";
       this.status = projectField(content, "status") || "draft";
       this.nextAction = projectField(content, "next_action");
+      this.plannedPublishAt = projectField(content, "planned_publish_at");
       this.contentEl.empty();
       this.contentEl.addClass("crisp-content-project-modal");
       this.contentEl.createEl("h2", { text: `推进：${this.projectName}` });
@@ -3924,17 +3978,23 @@ class ContentProjectStageModal extends Modal {
             this.nextAction = value;
           });
         });
+      addPlannedPublishSetting(this.contentEl, this.plugin, this.plannedPublishAt, (value) => {
+        this.plannedPublishAt = value;
+      });
       const actions = this.contentEl.createDiv({ cls: "launchpad-modal-actions" });
       const save = addButton(actions, "保存状态", "launchpad-btn is-primary");
       save.addEventListener("click", async () => {
         try {
           save.disabled = true;
-          await this.plugin.updateContentProject(this.projectDir, {
+          const saved = await this.plugin.updateContentProject(this.projectDir, {
             stage: this.stage,
             status: this.status,
             nextAction: this.nextAction,
+            plannedPublishAt: this.plannedPublishAt,
+            title: this.projectName,
           });
           new Notice("Crisp Launchpad：项目状态已更新");
+          noticePublishAction(saved.publishAction);
           this.close();
           await this.view.render();
         } catch (error) {
@@ -4976,7 +5036,9 @@ class CrispLaunchpadPlugin extends Plugin {
     track = "obsidian",
     topic = "",
     platform = "",
+    plannedPublishAt = "",
   }) {
+    if (plannedPublishAt && !isDateKey(plannedPublishAt)) throw new Error("计划发布日应为 YYYY-MM-DD");
     const now = new Date();
     const projectTitle = String(title || "").trim();
     const finalSlug = contentSlug(slug || projectTitle, "CONTENT");
@@ -5032,6 +5094,7 @@ class CrispLaunchpadPlugin extends Plugin {
           content = updateProjectField(content, "track", track);
         }
         content = updateProjectField(content, "profile", profile);
+        if (plannedPublishAt) content = updateProjectField(content, "planned_publish_at", yamlQuote(plannedPublishAt));
         content = content.replace(
           /^delivery_target:.*$/m,
           `$&\n\nquestion_waiver:\n  granted: true\n  reason: ${yamlQuote("作者通过 Crisp Launchpad 新建项目并直接指定选题")}\n  approved_by: "user"\n  approved_at: ${yamlQuote(dateKey(now))}`,
@@ -5074,7 +5137,10 @@ class CrispLaunchpadPlugin extends Plugin {
         // system snapshot refresh blocked. Do not report that as creation failure.
       }
     }
-    return { contentId, projectDir, validation };
+    const publishAction = plannedPublishAt
+      ? await this.syncPublishAction({ projectDir, title: title || contentId, previous: "", next: plannedPublishAt, published: false })
+      : { status: "none" };
+    return { contentId, projectDir, validation, publishAction };
   }
 
   async updateContentProject(projectDir, changes) {
@@ -5097,15 +5163,56 @@ class CrispLaunchpadPlugin extends Plugin {
     }
   }
 
-  async commitContentProject(projectDir, { stage, status, nextAction }) {
+  /* 计划发布日变了才动 Tempo：新日期建行动（Tempo 按来源去重），改期和清空都带上原日期，
+     由 Tempo 判断那条行动的截止日期是不是还是我们给的；用户在 Tempo 里改过就不动。
+     Tempo 的任何问题都不影响项目文件已经保存。 */
+  async syncPublishAction({ projectDir, title, previous, next, published }) {
+    const projectId = String(projectDir || "").replace(/\/+$/, "").split("/").pop();
+    const sourceId = contentPublishSourceId(projectId);
+    const tempo = this.tempoApi();
+    const changed = previous !== next;
+    if (!sourceId || (!changed && !published)) return { status: "none" };
+    if (!tempo) return { status: changed && next ? "no-tempo" : "none" };
+    try {
+      if (changed) {
+        if (!(Number(tempo.sourceTasksApiVersion) >= 2)) return { status: next ? "old-tempo" : "none" };
+        if (next) {
+          const article = `${projectDir}/article.md`;
+          const task = await tempo.createTaskFromSource({
+            sourceId,
+            title: `发布：${textOr(title, projectId)}`,
+            ...(this.app.vault.getAbstractFileByPath(article) ? { notePath: article } : {}),
+            dueDate: next,
+          });
+          if (task?.dueDate === next) return { status: "synced" };
+        }
+        const moved = await tempo.rescheduleSourceTask({ sourceId, dueDate: next || null, ifDueDate: previous || null });
+        return { status: moved?.status === "kept" ? "kept" : "synced" };
+      }
+      if (typeof tempo.getTasksBySource !== "function") return { status: "none" };
+      const task = (await tempo.getTasksBySource([sourceId]))?.[sourceId];
+      return { status: task && task.status !== "done" && task.status !== "canceled" ? "open-after-publish" : "none" };
+    } catch (error) {
+      return { status: "failed", message: error.message || String(error) };
+    }
+  }
+
+  async commitContentProject(projectDir, { stage, status, nextAction, plannedPublishAt, title }) {
     if (!CONTENT_STAGES.includes(stage) || !CONTENT_STATUSES.includes(status)) {
       throw new Error("项目阶段或状态无效");
+    }
+    if (plannedPublishAt !== undefined && plannedPublishAt !== "" && !isDateKey(plannedPublishAt)) {
+      throw new Error("计划发布日应为 YYYY-MM-DD");
     }
     const today = dateKey(new Date());
     const vault = this.app.vault;
     const projectFile = vault.getAbstractFileByPath(`${projectDir}/project.yaml`);
     if (!(projectFile instanceof TFile)) throw new Error("project.yaml 不存在");
     const changes = [];
+    const previousPlanned = projectField(await vault.read(projectFile), "planned_publish_at");
+    // 没传就不动；清空只对已经有这个字段的项目生效，旧项目不凭空多一个空字段。
+    const writePlanned = plannedPublishAt !== undefined && plannedPublishAt !== previousPlanned;
+    const nextPlanned = writePlanned ? plannedPublishAt : previousPlanned;
     // Prepare every new file before the first write. Keep the original bytes for recovery.
     // project.md 是 project.yaml 的镜像且 anks_core 优先读它：一起改 frontmatter（只改已有键），
     // 手写正文不被 --force 覆盖，移动端推进后也不会留下过期控制卡。
@@ -5125,10 +5232,14 @@ class CrispLaunchpadPlugin extends Plugin {
         if (!control && !projectField(before, "published_at")) fields.published_at = today;
       }
       let after = before;
+      // 日期带引号写，YAML 才不会把它读成日期类型；控制卡没有这个键时补上，否则 ANKS 报控制卡过期。
+      const planned = { planned_publish_at: yamlQuote(nextPlanned) };
       if (name === "project.yaml") {
         for (const [key, value] of Object.entries(fields)) after = updateProjectField(after, key, value);
+        if (writePlanned) after = updateProjectField(after, "planned_publish_at", planned.planned_publish_at);
       } else if (name === "project.md") {
         after = updateExistingFrontmatterFields(before, fields);
+        if (writePlanned) after = upsertFrontmatterFields(after, planned);
       } else {
         after = upsertFrontmatterFields(before, fields);
       }
@@ -5174,8 +5285,12 @@ class CrispLaunchpadPlugin extends Plugin {
       try { await this.refreshSystemSnapshots({ silent: true }); }
       catch (error) { new Notice(`项目状态已保存，快照刷新失败：${error.message || error}`); }
     }
+    const publishAction = await this.syncPublishAction({
+      projectDir, title, previous: previousPlanned, next: nextPlanned,
+      published: status === "published",
+    });
     this.refreshViews();
-    return { stage, status, nextAction };
+    return { stage, status, nextAction, publishAction };
   }
 
   listTopics() {
@@ -5346,6 +5461,8 @@ module.exports.dueCountdownLabel = dueCountdownLabel;
 module.exports.daysBetweenKeys = daysBetweenKeys;
 module.exports.dueDaysLeft = dueDaysLeft;
 module.exports.dueTone = dueTone;
+module.exports.publishCountdown = publishCountdown;
+module.exports.contentPublishSourceId = contentPublishSourceId;
 module.exports.msUntilNextDay = msUntilNextDay;
 module.exports.DEADLINE_WINDOW_DAYS = DEADLINE_WINDOW_DAYS;
 module.exports.buildStageBuckets = buildStageBuckets;
