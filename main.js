@@ -1093,11 +1093,65 @@ function publishedOutputPages(pages, topicPrefix = "") {
   return [...byKey.values()].sort((left, right) => publicationTimestamp(right) - publicationTimestamp(left));
 }
 
-function actionItemMeta(item) {
-  if (item?.overdue && item.due) return `逾期 · ${item.due.slice(5)}`;
+/* 临近截止：行动面板「今天」页签里，按剩余天数列出未来几天要截止的行动。
+   逾期和今天截止的已经在「今天要做」里，这里只看明天起的 DEADLINE_WINDOW_DAYS 天。 */
+const DEADLINE_WINDOW_DAYS = 7;
+const DEADLINE_SOON_DAYS = 3;
+
+/* 两个 YYYY-MM-DD 之间差几天。按 UTC 零点算，夏令时切换那天不会差出 0.96 天。 */
+function daysBetweenKeys(from, to) {
+  const toUtc = (key) => {
+    const [year, month, day] = key.split("-").map(Number);
+    return Date.UTC(year, month - 1, day);
+  };
+  return Math.round((toUtc(to) - toUtc(from)) / 86400000);
+}
+
+function dueCountdownLabel(days) {
+  if (days < 0) return `逾期 ${-days} 天`;
+  if (days === 0) return "今天截止";
+  if (days === 1) return "明天截止";
+  return `还剩 ${days} 天`;
+}
+
+/* 未完成且有截止日的行动离截止还有几天（逾期为负）；其余返回 null。 */
+function dueDaysLeft(item, today = dateKey(new Date())) {
+  if (!item || item.done || !isDateKey(item.due)) return null;
+  return daysBetweenKeys(today, item.due);
+}
+
+/* 逾期一种颜色，今天到 DEADLINE_SOON_DAYS 天内一种颜色，更远的不上色。 */
+function dueTone(days) {
+  if (days < 0) return "is-overdue";
+  return days <= DEADLINE_SOON_DAYS ? "is-soon" : "";
+}
+
+/* shownIds：上面「今天要做」已经列出的行动，不在这里重复。 */
+function upcomingDeadlines(tasks, today = dateKey(new Date()), windowDays = DEADLINE_WINDOW_DAYS, shownIds = null) {
+  return (Array.isArray(tasks) ? tasks : [])
+    .filter((task) => task && !task.done && isDateKey(task.due) && !shownIds?.has(task.id))
+    .map((task) => ({ task, days: daysBetweenKeys(today, task.due) }))
+    .filter(({ days }) => days >= 1 && days <= windowDays)
+    .sort((left, right) => left.days - right.days || textOr(left.task.title).localeCompare(textOr(right.task.title), "zh"));
+}
+
+function actionItemMeta(item, today = dateKey(new Date())) {
+  const days = dueDaysLeft(item, today);
+  if (days !== null) return dueCountdownLabel(days);
   if (item?.due) return item.due.slice(5);
   if (item?.bucket === "waiting") return "等待";
   return "随时";
+}
+
+/* 工作台行动行右侧的时间：未完成的显示倒计时并按远近上色，确切日期放在悬停提示里。 */
+function renderActionMeta(parent, item) {
+  const days = dueDaysLeft(item);
+  const el = parent.createSpan({
+    cls: days === null ? "" : `launchpad-action-due ${dueTone(days)}`.trim(),
+    text: actionItemMeta(item),
+  });
+  if (days !== null) el.setAttribute("title", `截止 ${item.due}`);
+  return el;
 }
 
 function snapshotAge(generatedAt) {
@@ -1935,7 +1989,7 @@ class LaunchpadRenderer {
       left.createDiv({ cls: "launchpad-row-title", text: item.title });
       const right = row.createDiv({ cls: "launchpad-row-right" });
       if (item.project) right.createSpan({ cls: "launchpad-badge", text: item.project });
-      right.createSpan({ text: actionItemMeta(item) });
+      renderActionMeta(right, item);
       makeClickable(
         row,
         () => this.plugin.openAction(item, (path, title) => this.view.openTarget(path, title)),
@@ -2594,7 +2648,7 @@ class LaunchpadRenderer {
         left.createDiv({ cls: "launchpad-row-title", text: task.title });
         const right = row.createDiv({ cls: "launchpad-row-right" });
         if (task.project) right.createSpan({ cls: "launchpad-badge", text: task.project });
-        right.createSpan({ text: actionItemMeta(task) });
+        renderActionMeta(right, task);
         makeClickable(
           row,
           () => this.plugin.openAction(task),
@@ -3049,24 +3103,40 @@ class CrispPanelRenderer {
     title.createSpan({ text: focus.length ? "今天要做" : "接下来" });
     title.createSpan({ text: `${rows.length} 条` });
     const list = section.createDiv({ cls: "crisp-panel-list" });
-    if (!rows.length) {
-      list.createDiv({ cls: "crisp-panel-empty", text: "今天没有排期行动" });
-      return;
-    }
+    if (!rows.length) list.createDiv({ cls: "crisp-panel-empty", text: "今天没有排期行动" });
     for (const task of rows) this.renderTask(list, task);
+    this.renderDeadlines(parent, new Set(rows.map((task) => task.id)));
+  }
+
+  renderDeadlines(parent, shownIds) {
+    const rows = upcomingDeadlines(this.tasks, undefined, undefined, shownIds);
+    if (!rows.length) return;
+    const section = parent.createDiv({ cls: "crisp-panel-section crisp-panel-deadlines" });
+    const title = section.createDiv({ cls: "crisp-panel-section-title" });
+    title.createSpan({ text: "临近截止" });
+    title.createSpan({ text: `未来 ${DEADLINE_WINDOW_DAYS} 天 · ${rows.length} 条` });
+    const list = section.createDiv({ cls: "crisp-panel-list" });
+    for (const { task } of rows) this.renderTask(list, task);
   }
 
   renderTask(parent, task) {
+    const countdownDays = dueDaysLeft(task);
     const row = parent.createDiv({ cls: "crisp-panel-task" });
     /* 行动只读：完成要在 Tempo 里做（重复提醒、子任务、日历同步都在那边），点行打开 Tempo。 */
     const body = row.createDiv({ cls: "crisp-panel-task-body" });
     body.createDiv({ cls: "crisp-panel-task-title", text: task.title });
     const meta = body.createDiv({ cls: "crisp-panel-task-meta" });
-    if (task.bucket === "overdue") meta.createSpan({ text: "逾期" });
+    if (task.bucket === "overdue" && countdownDays === null) meta.createSpan({ text: "逾期" });
     if (task.waiting) meta.createSpan({ text: "等待中" });
     if (task.project) meta.createSpan({ text: `#${task.project}` });
     if (task.due) {
       meta.createSpan({ text: task.time ? `📅 ${task.due} ⏰ ${task.time}` : `📅 ${task.due}` });
+    }
+    if (countdownDays !== null) {
+      row.createDiv({
+        cls: `crisp-panel-countdown ${dueTone(countdownDays)}`.trim(),
+        text: dueCountdownLabel(countdownDays),
+      });
     }
     makeClickable(row, () => this.plugin.openAction(task), `在 Tempo 打开：${task.title}`);
   }
@@ -5241,6 +5311,12 @@ module.exports.WORKSPACE_MODES = WORKSPACE_MODES;
 
 module.exports.LaunchpadRenderer = LaunchpadRenderer;
 module.exports.actionItemMeta = actionItemMeta;
+module.exports.upcomingDeadlines = upcomingDeadlines;
+module.exports.dueCountdownLabel = dueCountdownLabel;
+module.exports.daysBetweenKeys = daysBetweenKeys;
+module.exports.dueDaysLeft = dueDaysLeft;
+module.exports.dueTone = dueTone;
+module.exports.DEADLINE_WINDOW_DAYS = DEADLINE_WINDOW_DAYS;
 module.exports.buildStageBuckets = buildStageBuckets;
 module.exports.collectPages = collectPages;
 module.exports.compactCommandError = compactCommandError;

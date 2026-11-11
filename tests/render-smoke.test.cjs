@@ -361,6 +361,43 @@ test("冒烟：Crisp 行动面板四个页签都能渲染且不抛异常", async
   }
 });
 
+test("冒烟：行动面板「今天」页签显示临近截止的倒计时，并标出 3 天内的", async () => {
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const plugin = await makePlugin({ tempoTasks: [
+    { id: "a", title: "后天交", status: "todo", bucket: "upcoming", dueDate: day(2) },
+    { id: "b", title: "下周交", status: "todo", bucket: "upcoming", dueDate: day(6) },
+    { id: "c", title: "很久以后", status: "todo", bucket: "upcoming", dueDate: day(30) },
+    { id: "d", title: "今天交", status: "todo", bucket: "today", dueDate: day(0) },
+    { id: "e", title: "今天做明天交", status: "todo", bucket: "today", dueDate: day(1) },
+    { id: "f", title: "拖了两天", status: "todo", bucket: "overdue", dueDate: day(-2) },
+  ] });
+  const { view } = await renderView(plugin, "crisp-launchpad-panel-view");
+  const find = (el, cls) => (el.classes?.has(cls) ? [el] : []).concat(...(el.children || []).map((c) => find(c, cls)));
+  const [section] = find(view.contentEl, "crisp-panel-deadlines");
+  assert.ok(section, "今天页签应有「临近截止」分区");
+  const text = section.allText();
+  assert.match(text, /未来 7 天 · 2 条/);
+  assert.ok(text.indexOf("后天交") < text.indexOf("下周交"), "按剩余天数排序");
+  assert.ok(!text.includes("很久以后") && !text.includes("今天交"));
+  const pills = find(section, "crisp-panel-countdown");
+  assert.deepEqual(pills.map((p) => p.textContent), ["还剩 2 天", "还剩 6 天"]);
+  assert.deepEqual(pills.map((p) => p.classes.has("is-soon")), [true, false]);
+  /* 上面「今天要做」里的行动也带倒计时，逾期单独一种颜色；已经列在上面的不在「临近截止」里重复。 */
+  assert.ok(!text.includes("今天做明天交"));
+  const all = find(view.contentEl, "crisp-panel-countdown");
+  const byText = Object.fromEntries(all.map((p) => [p.textContent, p]));
+  assert.deepEqual(Object.keys(byText).sort(), ["今天截止", "明天截止", "还剩 2 天", "还剩 6 天", "逾期 2 天"].sort());
+  assert.ok(byText["逾期 2 天"].classes.has("is-overdue") && !byText["逾期 2 天"].classes.has("is-soon"));
+  assert.ok(byText["今天截止"].classes.has("is-soon"));
+});
+
+test("冒烟：没有临近截止的行动时，行动面板不留空分区", async () => {
+  const plugin = await makePlugin({ tempoTasks: [{ id: "a", title: "随时做", status: "todo", bucket: "anytime" }] });
+  const { view } = await renderView(plugin, "crisp-launchpad-panel-view");
+  const find = (el, cls) => (el.classes?.has(cls) ? [el] : []).concat(...(el.children || []).map((c) => find(c, cls)));
+  assert.equal(find(view.contentEl, "crisp-panel-deadlines").length, 0);
+});
+
 test("冒烟：mtime 未知的页要显示为未知，不能被算成今天、也不能显示成 1970", async () => {
   /* fixture 里的 `无时间.md` 用 mtime=0 模拟「拿不到 stat.mtime」。
      0 是哨兵值而不是 1970-01-01 —— 这条断言把哨兵规则钉在渲染结果上：

@@ -47,8 +47,8 @@ test("action metadata does not duplicate the project badge", () => {
     "等待",
   );
   assert.equal(
-    launchpad.actionItemMeta({ bucket: "today", due: "2026-09-19" }),
-    "09-19",
+    launchpad.actionItemMeta({ bucket: "today", due: "2026-09-19" }, "2026-09-19"),
+    "今天截止",
   );
 });
 
