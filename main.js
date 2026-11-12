@@ -4249,8 +4249,7 @@ class CrispLaunchpadPlugin extends Plugin {
       id: "quick-capture",
       name: "Crisp Launchpad：速记",
       callback: async () => {
-        await this.activateView();
-        const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_LAUNCHPAD)[0];
+        const leaf = await this.activateView();
         this.openQuickCapture(leaf?.view);
       },
     });
@@ -4271,8 +4270,7 @@ class CrispLaunchpadPlugin extends Plugin {
       name: "Crisp Launchpad：新建内容项目",
       callback: async () => {
         await this.resolveWorkspaceProfile();
-        await this.activateView();
-        const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_LAUNCHPAD)[0];
+        const leaf = await this.activateView();
         new ContentProjectCreateModal(this.app, this, leaf?.view).open();
       },
     });
@@ -4565,7 +4563,9 @@ class CrispLaunchpadPlugin extends Plugin {
       leaf = this.app.workspace.getLeaf("tab");
       await leaf.setViewState({ type: VIEW_TYPE_LAUNCHPAD, active: true });
     }
-    this.app.workspace.revealLeaf(leaf);
+    // 恢复中或延迟加载的标签（重启、更新后不在前台）要等 revealLeaf 换上真视图，调用方才能把 leaf.view 交给弹窗
+    await this.app.workspace.revealLeaf(leaf);
+    return leaf;
   }
 
   async activatePanelView() {
@@ -4574,7 +4574,7 @@ class CrispLaunchpadPlugin extends Plugin {
       leaf = this.app.workspace.getRightLeaf(false) || this.app.workspace.getLeaf("tab");
       await leaf.setViewState({ type: VIEW_TYPE_PANEL, active: true });
     }
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
     return leaf;
   }
 

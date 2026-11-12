@@ -753,6 +753,35 @@ test("打开启动台：原标签还在恢复中时复用它，不新开第二�
   assert.equal(revealed, restoring, "应显示原来的标签");
 });
 
+// Failure mode: the Launchpad tab is restoring or deferred (after a restart or plugin update, not the
+// front tab). revealLeaf is async and only its end guarantees the real view is loaded; the commands
+// that open a modal right after activateView handed it undefined or the placeholder view, so the
+// content-project modal threw on view.render() after the project was already created.
+test("命令打开弹窗前等启动台加载完成：恢复中或延迟加载的标签也拿到真视图", async () => {
+  const plugin = await makePlugin({ desktop: true });
+  const real = { render: async () => {}, isReal: true };
+  const leaf = { view: {}, getViewState: () => ({ type: "crisp-launchpad-view" }) };
+  leaf.loadIfDeferred = async () => { await new Promise((r) => setTimeout(r, 5)); leaf.view = real; };
+  let loaded = false;
+  plugin.app.workspace.getLeavesOfType = (type) => (type === "crisp-launchpad-view" && loaded ? [leaf] : []);
+  plugin.app.workspace.iterateAllLeaves = (fn) => fn(leaf);
+  plugin.app.workspace.getLeaf = () => { throw new Error("不应新开标签"); };
+  plugin.app.workspace.revealLeaf = async (l) => { await l.loadIfDeferred(); loaded = true; };
+  plugin.app.commands.executeCommandById = () => false; // 没有 Pulse 速记命令，走 Launchpad 自己的弹窗
+  const opened = [];
+  const origOpen = mock.Modal.prototype.open;
+  mock.Modal.prototype.open = function () { opened.push(this.view); };
+  try {
+    const command = (id) => plugin._commands.find((c) => c.id === id);
+    await command("quick-capture").callback();
+    await command("new-content-project").callback();
+  } finally {
+    mock.Modal.prototype.open = origOpen;
+  }
+  assert.equal(opened.length, 2);
+  assert.ok(opened.every((view) => view === real), "速记、新建内容项目两个弹窗都拿到真视图");
+});
+
 /* ==========================================================================
    0.8.0 第三期：复盘页节奏读 Pulse、系统问题按类型归组
    ========================================================================== */
