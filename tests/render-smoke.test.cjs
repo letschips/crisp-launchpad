@@ -753,6 +753,34 @@ test("打开启动台：原标签还在恢复中时复用它，不新开第二�
   assert.equal(revealed, restoring, "应显示原来的标签");
 });
 
+// Failure mode: disabling the plugin turns the Launchpad tab into an "empty" tab, so on re-enable
+// (manual toggle or update) neither getLeavesOfType nor the layout fallback finds it. onLayoutReady
+// fires at once because the layout is already up, and "open on startup" either opened a second
+// Launchpad tab before Obsidian restored the old one, or pulled the restored tab to the front.
+async function startupOpens({ layoutReady }) {
+  mock.Platform.isMobile = false;
+  const plugin = new api();
+  plugin.app = makeApp({ desktop: true });
+  plugin.loadData = async () => ({ openOnStartup: true, panelOnStartup: true, hasCompletedOnboarding: true });
+  const ws = plugin.app.workspace;
+  let ready = null;
+  ws.layoutReady = layoutReady;
+  ws.onLayoutReady = (cb) => { if (ws.layoutReady) cb(); else ready = cb; };
+  const opened = [];
+  plugin.activateView = async () => { opened.push("launchpad"); };
+  plugin.activatePanelView = async () => { opened.push("panel"); };
+  await plugin.onload();
+  if (ready) { ws.layoutReady = true; await ready(); }
+  await new Promise((r) => setTimeout(r, 0));
+  plugin.onunload();
+  return opened;
+}
+
+test("启动时打开：只在 Obsidian 启动时生效，插件中途启用或更新时不新开、不抢前台", async () => {
+  assert.deepEqual(await startupOpens({ layoutReady: false }), ["launchpad", "panel"], "Obsidian 启动时照常打开");
+  assert.deepEqual(await startupOpens({ layoutReady: true }), [], "插件重新启用时不再打开");
+});
+
 // Failure mode: the Launchpad tab is restoring or deferred (after a restart or plugin update, not the
 // front tab). revealLeaf is async and only its end guarantees the real view is loaded; the commands
 // that open a modal right after activateView handed it undefined or the placeholder view, so the

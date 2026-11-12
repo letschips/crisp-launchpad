@@ -4336,10 +4336,14 @@ class CrispLaunchpadPlugin extends Plugin {
     this.renderedDay = dateKey(new Date());
     this.scheduleDayRollover();
     this.registerDomEvent(window, "focus", () => this.checkDayRollover());
+    /* 「启动时打开」只在 Obsidian 启动时生效。插件中途启用或更新时布局已就绪，原来的启动台标签
+       在禁用期间变成空标签、要等 onload 之后才恢复；这时再打开会新开第二个标签或抢走前台。
+       首次安装（还没走完引导）照旧打开。 */
+    const startup = !this.app.workspace.layoutReady || !this.settings.hasCompletedOnboarding;
     this.app.workspace.onLayoutReady(async () => {
       if (this.unloaded) return;
-      if (this.settings.openOnStartup) await this.activateView();
-      if (this.settings.panelOnStartup) await this.activatePanelView();
+      if (startup && this.settings.openOnStartup) await this.activateView();
+      if (startup && this.settings.panelOnStartup) await this.activatePanelView();
       if (!this.settings.hasCompletedOnboarding) {
         new LaunchpadOnboardingModal(this.app, this).open();
       }
