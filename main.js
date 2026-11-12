@@ -2274,7 +2274,7 @@ class LaunchpadRenderer {
       for (const tool of group.tools) {
         const button = tools.createEl("button", { cls: "launchpad-tool" });
         addIcon(button, tool.icon, "launchpad-tool-icon");
-        button.createSpan({ text: tool.name });
+        button.createSpan({ cls: "launchpad-tool-name", text: tool.name });
         button.addEventListener("click", () => {
           if (!this.app.commands.executeCommandById(tool.command)) {
             new Notice(`Crisp Launchpad：「${tool.name}」暂时打不开`);
