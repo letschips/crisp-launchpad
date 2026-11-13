@@ -14,6 +14,8 @@ const {
   TFolder,
   setIcon,
   addIcon: registerIcon = (() => {}),
+  requestUrl = null,
+  apiVersion = "",
 } = require("obsidian");
 
 // Obsidian's Plugin.loadData() returns null for a missing data.json but undefined when the file exists
@@ -1540,6 +1542,113 @@ function makeClickable(element, handler, label = "") {
   });
 }
 
+/* ==========================================================================
+   系统页 · Crisp 插件：本地版本对比 GitHub 最新 Release、插件文件是否齐全、授权是否有效，
+   以及一键复制诊断信息。只读：不下载、不安装、不改任何授权；私有插件不列。
+   ========================================================================== */
+const CRISP_PRIVATE_PLUGINS = new Set(["crisp-quest"]);
+const CRISP_RELEASE_CACHE_KEY = "crisp-launchpad-release-cache";
+/* 成功检查后 12 小时内不再请求；请求失败（离线、限流）1 小时后再试 */
+const CRISP_RELEASE_TTL = 12 * 3600 * 1000;
+const CRISP_RELEASE_RETRY = 3600 * 1000;
+const CRISP_RELEASE_FILES = ["main.js", "manifest.json", "styles.css"];
+/* 没查到 Release 时只要求这两个；有 Release 就按它实际附带的文件核对 */
+const CRISP_REQUIRED_FILES = ["main.js", "manifest.json"];
+
+/** 比较 "1.10.0" 与 "v1.9.3"：返回 1 / 0 / -1；任一方不是数字版本号时返回 null。 */
+function compareVersions(a, b) {
+  const parse = (v) => {
+    const m = String(v ?? "").trim().replace(/^v/i, "").match(/^(\d+(?:\.\d+)*)/);
+    return m ? m[1].split(".").map(Number) : null;
+  };
+  const x = parse(a), y = parse(b);
+  if (!x || !y) return null;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+/** 已安装的公开 Crisp 插件 id（按 id 排序）。 */
+function crispPluginIds(manifests) {
+  return Object.keys(manifests || {})
+    .filter((id) => id.startsWith("crisp-") && !CRISP_PRIVATE_PLUGINS.has(id))
+    .sort();
+}
+
+/** GitHub releases/latest 的返回 → { tag, url, assets }；不像 Release 就返回 null。 */
+function parseCrispRelease(json) {
+  const tag = textOr(json?.tag_name);
+  if (!tag) return null;
+  const assets = Array.isArray(json.assets) ? json.assets.map((a) => textOr(a?.name)).filter((n) => CRISP_RELEASE_FILES.includes(n)) : [];
+  return { tag, url: textOr(json.html_url), assets };
+}
+
+/** 读插件已公开的授权状态：true / false；读不到返回 null。不调用任何会改状态的方法。 */
+function readCrispLicense(plugin) {
+  if (!plugin) return null;
+  const read = (fn, owner) => { try { const v = fn.call(owner); return typeof v === "boolean" ? v : null; } catch (_) { return null; } };
+  if (typeof plugin.isEntitled === "function") return read(plugin.isEntitled, plugin);
+  if (typeof plugin.isLicensed === "function") return read(plugin.isLicensed, plugin);
+  if (typeof plugin.licensed === "boolean") return plugin.licensed;
+  const manager = plugin.licenseManager;
+  if (manager && typeof manager.isEntitled === "function") return read(manager.isEntitled, manager);
+  if (manager && typeof manager.isLicensed === "function") return read(manager.isLicensed, manager);
+  return null;
+}
+
+/** 一个插件在系统页上的状态。files 是插件目录里实际存在的文件名集合。 */
+function crispPluginStatus({ id, manifest, enabled = false, files = new Set(), release = null, licensed = null }) {
+  const version = textOr(manifest?.version);
+  const latest = release?.tag ? release.tag.replace(/^v/i, "") : "";
+  const expected = release?.assets?.length ? release.assets : CRISP_REQUIRED_FILES;
+  return {
+    id,
+    name: textOr(manifest?.name, id),
+    version,
+    latest,
+    url: release?.url || "",
+    hasUpdate: !!latest && compareVersions(latest, version) === 1,
+    missing: expected.filter((file) => !files.has(file)),
+    licensed,
+    enabled,
+  };
+}
+
+function crispReleaseCacheDue(cache, now = Date.now()) {
+  if (cache?.attemptAt && now - cache.attemptAt < CRISP_RELEASE_RETRY) return false;
+  return !cache?.checkedAt || now - cache.checkedAt >= CRISP_RELEASE_TTL;
+}
+
+function crispStamp(ms) {
+  if (!ms) return "";
+  const d = new Date(ms), pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** 复制给作者看的诊断信息：只有版本、平台、是否激活、文件是否齐全和体检状态；不含授权码、笔记内容或文件名。 */
+function buildCrispDiagnostics({ obsidianVersion = "", platform = "", items = [], health = null, checkedAt = 0, now = Date.now() }) {
+  const lines = [`Crisp 诊断 · ${crispStamp(now)}`, `Obsidian ${textOr(obsidianVersion, "未知")} · ${textOr(platform, "未知")}`];
+  lines.push(`版本检查：${checkedAt ? crispStamp(checkedAt) : "未检查"}`);
+  if (health) {
+    const counts = health.data?.counts || {};
+    const age = snapshotAge(health.generated_at);
+    lines.push(`ANKS 体检：${textOr(health.data?.status, "未知")} · 阻塞 ${Number(counts.blocking || 0)} · 待办 ${Number(counts.operational || 0)} · ${age === null ? "时间未知" : `${Math.round(age)} 小时前`}`);
+  } else {
+    lines.push("ANKS 体检：无快照");
+  }
+  for (const item of items) {
+    const parts = [`${item.id} ${item.version || "?"}`];
+    if (item.latest) parts[0] += item.hasUpdate ? `（最新 ${item.latest}）` : "（最新）";
+    if (!item.enabled) parts.push("未启用");
+    if (item.licensed !== null && item.licensed !== undefined) parts.push(item.licensed ? "已激活" : "未激活");
+    parts.push(item.missing.length ? `缺 ${item.missing.join("、")}` : "文件齐全");
+    lines.push(parts.join(" · "));
+  }
+  return lines.join("\n");
+}
+
 class LaunchpadRenderer {
   constructor(view, root, snapshots, pageData, profileId = "content-ops", capabilities = null) {
     this.view = view;
@@ -2778,6 +2887,7 @@ class LaunchpadRenderer {
     if (this.profile.features.kernelPill) this.renderSystemDrawer(this.panels.system);
     const findings = this.snapshots.health?.data?.findings;
     if (Array.isArray(findings)) this.renderFindingGroups(this.panels.system, findings);
+    this.renderCrispPlugins(this.panels.system);
     if (!this.hasTab("knowledge") && !this.hasTab("review") && this.profile.kpis?.length) {
       this.renderKpis(this.panels.system);
     }
@@ -2849,6 +2959,45 @@ class LaunchpadRenderer {
       button.addEventListener("click", () => this.view.openTarget(target, label));
     }
     if (!quickCount) this.renderEmpty(actions, "没有识别到快捷入口");
+  }
+
+  /* Crisp 插件：每款一行（名字、本地版本），只有异常才加标记：可更新（点开 Release 页）、缺文件、未激活。 */
+  renderCrispPlugins(parent) {
+    const data = this.snapshots.crispPlugins;
+    if (!data?.items?.length) return;
+    const card = parent.createDiv({ cls: "launchpad-card" });
+    const header = card.createDiv({ cls: "launchpad-card-header" });
+    const title = header.createDiv({ cls: "launchpad-card-title" });
+    addIcon(title, "blocks");
+    title.createSpan({ text: "Crisp 插件" });
+    const updates = data.items.filter((item) => item.hasUpdate).length;
+    const broken = data.items.filter((item) => item.missing.length).length;
+    if (updates) title.createSpan({ cls: "launchpad-badge is-accent", text: `${updates} 个可更新` });
+    if (broken) title.createSpan({ cls: "launchpad-badge is-warning", text: `${broken} 个文件不全` });
+    const actions = header.createDiv({ cls: "launchpad-actions" });
+    actions.createSpan({ cls: "launchpad-crisp-checked", text: data.checkedAt ? `${crispStamp(data.checkedAt).slice(5)} 检查` : "未检查" });
+    const copy = addButton(actions, "复制诊断信息");
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(this.plugin.crispDiagnostics(data, this.snapshots.health));
+        new Notice("诊断信息已复制");
+      } catch (error) {
+        new Notice("复制失败，请检查剪贴板权限后重试");
+      }
+    });
+    const list = card.createDiv({ cls: "launchpad-crisp-list" });
+    for (const item of data.items) {
+      const row = list.createDiv({ cls: "launchpad-crisp-row" });
+      row.createSpan({ cls: "launchpad-crisp-name", text: item.name.replace(/^Crisp\s+/, "") });
+      row.createSpan({ cls: "launchpad-crisp-version", text: item.version });
+      const tags = row.createDiv({ cls: "launchpad-crisp-tags" });
+      if (item.hasUpdate && item.url) {
+        const link = tags.createEl("a", { cls: "launchpad-badge is-accent", text: `${item.latest} ↗`, href: item.url });
+        link.setAttribute("aria-label", `${item.name} ${item.latest} 的 Release 页面`);
+      }
+      if (item.missing.length) tags.createSpan({ cls: "launchpad-badge is-warning", text: `缺 ${item.missing.join("、")}` });
+      if (item.licensed === false) tags.createSpan({ cls: "launchpad-badge is-warning", text: "未激活" });
+    }
   }
 
   /* 问题清单按代码归组：阻塞 → 待办 → 提示，同级按数量多到少；阻塞组默认展开。
@@ -2972,13 +3121,14 @@ class CrispLaunchpadView extends ItemView {
   async render() {
     const nonce = ++this.renderNonce;
     /* 快照读取与工作区形态探测全部在清空前并行就绪，避免清空后等待 I/O 导致白屏闪烁。 */
-    const [actions, health, content, index, tasks, profileId] = await Promise.all([
+    const [actions, health, content, index, tasks, profileId, crispPlugins] = await Promise.all([
       this.readSnapshot("actions"),
       this.readSnapshot("health"),
       this.readSnapshot("content"),
       this.readSnapshot("index"),
       this.plugin.readActions(),
       this.plugin.resolveWorkspaceProfile(),
+      this.plugin.collectCrispPlugins(),
     ]);
     /* Tempo 的今天完成数要在 readActions 判定连上 Tempo 之后再读。 */
     const signals = await this.plugin.readTodaySignals();
@@ -2989,7 +3139,7 @@ class CrispLaunchpadView extends ItemView {
     new LaunchpadRenderer(
       this,
       root,
-      { actions, health, content, index, tasks, signals },
+      { actions, health, content, index, tasks, signals, crispPlugins },
       collectPages(this.app),
       profileId,
       this.plugin.lastCapabilities,
@@ -2997,6 +3147,8 @@ class CrispLaunchpadView extends ItemView {
 
     this.contentEl.empty();
     this.contentEl.appendChild(root);
+    /* 版本检查在后台进行，有新结果再重画一次；没到时间或离线时什么都不做 */
+    this.plugin.checkCrispReleases().then((changed) => { if (changed && nonce === this.renderNonce) this.render(); }).catch(() => {});
   }
 
   async readSnapshot(kind) {
@@ -4162,6 +4314,98 @@ function recordAutoSyncFailure(plugin, component, error) {
 }
 
 class CrispLaunchpadPlugin extends Plugin {
+  readCrispReleaseCache() {
+    try {
+      return JSON.parse(window.localStorage.getItem(CRISP_RELEASE_CACHE_KEY) || "null") || {};
+    } catch (error) {
+      return {};
+    }
+  }
+
+  writeCrispReleaseCache(cache) {
+    try {
+      window.localStorage.setItem(CRISP_RELEASE_CACHE_KEY, JSON.stringify(cache));
+    } catch (error) {
+      // localStorage is optional.
+    }
+  }
+
+  /** 已安装的公开 Crisp 插件：版本、文件是否齐全、授权，配上缓存里的最新 Release。 */
+  async collectCrispPlugins() {
+    try {
+      const plugins = this.app.plugins || {};
+      const manifests = plugins.manifests || {};
+      const adapter = this.app.vault.adapter;
+      const cache = this.readCrispReleaseCache();
+      const items = await Promise.all(crispPluginIds(manifests).map(async (id) => {
+        const manifest = manifests[id];
+        const dir = textOr(manifest.dir, `${this.app.vault.configDir}/plugins/${id}`);
+        const files = new Set();
+        await Promise.all(CRISP_RELEASE_FILES.map(async (file) => {
+          try {
+            if (await adapter.exists(`${dir}/${file}`)) files.add(file);
+          } catch (error) {
+            // An unreadable file counts as missing.
+          }
+        }));
+        return crispPluginStatus({
+          id,
+          manifest,
+          enabled: !!plugins.enabledPlugins?.has?.(id),
+          files,
+          release: cache.releases?.[id] || null,
+          licensed: readCrispLicense(plugins.plugins?.[id]),
+        });
+      }));
+      return { items, checkedAt: Number(cache.checkedAt) || 0 };
+    } catch (error) {
+      console.error("[Crisp Launchpad] Failed to read Crisp plugins", error);
+      return null;
+    }
+  }
+
+  /** 到时间才去 GitHub 查各插件的最新 Release；查到任意一个就算检查成功。返回是否有新结果。 */
+  async checkCrispReleases({ force = false } = {}) {
+    if (typeof requestUrl !== "function") return false;
+    const cache = this.readCrispReleaseCache();
+    if (!force && !crispReleaseCacheDue(cache)) return false;
+    if (this.crispReleaseCheck) return this.crispReleaseCheck;
+    this.crispReleaseCheck = (async () => {
+      const releases = { ...(cache.releases || {}) };
+      let found = 0;
+      for (const id of crispPluginIds(this.app.plugins?.manifests)) {
+        try {
+          const response = await requestUrl({
+            url: `https://api.github.com/repos/letschips/${id}/releases/latest`,
+            headers: { Accept: "application/vnd.github+json" },
+            throw: false,
+          });
+          const release = response?.status === 200 ? parseCrispRelease(response.json) : null;
+          if (release) {
+            releases[id] = release;
+            found += 1;
+          }
+        } catch (error) {
+          // Offline or rate limited: keep the previous result.
+        }
+      }
+      const now = Date.now();
+      this.writeCrispReleaseCache(found ? { checkedAt: now, releases } : { ...cache, attemptAt: now });
+      return found > 0;
+    })();
+    try {
+      return await this.crispReleaseCheck;
+    } finally {
+      this.crispReleaseCheck = null;
+    }
+  }
+
+  crispDiagnostics(data, health) {
+    const platform = Platform.isMacOS ? "macOS" : Platform.isWin ? "Windows" : Platform.isLinux ? "Linux"
+      : Platform.isIosApp ? (Platform.isTablet ? "iPadOS" : "iOS") : Platform.isAndroidApp ? "Android" : "";
+    return buildCrispDiagnostics({ obsidianVersion: apiVersion, platform, items: data?.items || [], health, checkedAt: data?.checkedAt || 0 });
+  }
+
 
   // Never overwrite a data.json that could not be read and could not be backed up either.
   async saveData(data) {
@@ -5447,6 +5691,13 @@ module.exports.isRouterIgnoredPath = isRouterIgnoredPath;
 module.exports.isSettledInboxStatus = isSettledInboxStatus;
 module.exports.inboxTriageItems = inboxTriageItems;
 module.exports.PANEL_TABS = PANEL_TABS;
+module.exports.compareVersions = compareVersions;
+module.exports.crispPluginIds = crispPluginIds;
+module.exports.parseCrispRelease = parseCrispRelease;
+module.exports.readCrispLicense = readCrispLicense;
+module.exports.crispPluginStatus = crispPluginStatus;
+module.exports.crispReleaseCacheDue = crispReleaseCacheDue;
+module.exports.buildCrispDiagnostics = buildCrispDiagnostics;
 module.exports.PAGES = PAGES;
 module.exports.detectWorkspaceCapabilities = detectWorkspaceCapabilities;
 module.exports.resolveWorkspaceProfile = resolveWorkspaceProfile;

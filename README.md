@@ -15,6 +15,7 @@ only interfaces.
 - Two-layer cards and segmented tabs shared with Crisp Pulse.
 - Review rhythm from Crisp Pulse daily scores (7 / 30 / 90 days); unrecorded days are shown as gaps, not zeros.
 - System findings grouped by type, ordered by severity, with links to the page that handles them.
+- Crisp plugins on the System page: installed version against the latest GitHub Release (checked in the background, at most every 12 hours; shows "未检查" when offline), missing plugin files, license state where the plugin exposes it, and a button that copies diagnostics without license codes or note content.
 - A content project's planned publish date becomes a dated "发布" action in Crisp Tempo (0.17.0+); the Create page counts down to it.
 - Quick capture (hands off to Crisp Pulse when enabled); new actions open Crisp Tempo's quick add.
 - One-click inbox conversion to action or topic card.

@@ -1890,3 +1890,49 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   .crisp-launchpad-view .launchpad-finding-group-body .launchpad-row-left { flex-direction: column; align-items: stretch; gap: 1px; }
   .crisp-launchpad-view .launchpad-finding-group-body .launchpad-finding-path { flex: none; }
 }
+
+/* 系统页 · Crisp 插件 */
+.crisp-launchpad-view .launchpad-crisp-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  column-gap: 20px;
+}
+
+.crisp-launchpad-view .launchpad-crisp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  border-bottom: 1px solid color-mix(in srgb, var(--pulse-ui-border) 45%, transparent);
+}
+
+.crisp-launchpad-view .launchpad-crisp-name {
+  font-size: 13px;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crisp-launchpad-view .launchpad-crisp-version {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.crisp-launchpad-view .launchpad-crisp-tags {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.crisp-launchpad-view .launchpad-crisp-tags a.launchpad-badge {
+  text-decoration: none;
+}
+
+.crisp-launchpad-view .launchpad-crisp-checked {
+  font-size: 12px;
+  color: var(--text-faint);
+  align-self: center;
+}
