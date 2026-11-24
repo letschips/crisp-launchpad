@@ -6,6 +6,7 @@ if (typeof window === "undefined") {
   global.window = global;
 }
 
+const registeredIcons = new Map();
 let mockObsidian;
 const originalLoad = Module._load;
 Module._load = function load(request, parent, isMain) {
@@ -31,7 +32,7 @@ Module._load = function load(request, parent, isMain) {
       TFolder,
       Platform,
       setIcon() {},
-      addIcon() {},
+      addIcon(id, svg) { registeredIcons.set(id, svg); },
     };
     return mockObsidian;
   }
@@ -637,45 +638,13 @@ test("R5 & R6: findingBasename qualifies generic doc names with parent folder an
   );
 });
 
-test("Custom SVG icons are defined and registered for Crisp Launchpad and Crisp Now", () => {
-  assert.equal(launchpad.CRISP_LAUNCHPAD_ICON_ID, "crisp-launchpad");
-  assert.equal(launchpad.CRISP_NOW_ICON_ID, "crisp-now");
-  assert.match(launchpad.CRISP_LAUNCHPAD_ICON_SVG, /fill="currentColor"/);
-  assert.match(launchpad.CRISP_LAUNCHPAD_ICON_SVG, /repeatCount="indefinite"/);
-  assert.match(launchpad.CRISP_NOW_ICON_SVG, /animateTransform/);
-  assert.match(launchpad.CRISP_NOW_ICON_SVG, /fill="currentColor"/);
-});
-
-test("Brand icons keep a persistent base shape so they never render blank", () => {
-  for (const [name, svg] of [
-    ["launchpad", launchpad.CRISP_LAUNCHPAD_ICON_SVG],
-    ["now", launchpad.CRISP_NOW_ICON_SVG],
-  ]) {
-    const body = svg.replace(/^<svg[^>]*>/, "").replace(/<\/svg>$/, "");
-    const base = body.match(/^<circle[^>]*?>/);
-    assert.ok(base, `${name} icon should start with a persistent base circle`);
-    assert.ok(!/r="0"/.test(base[0]), `${name} base circle must not be zero-radius`);
-    assert.ok(!base[0].includes("<animate"), `${name} base circle must be static`);
-  }
-  assert.ok(
-    !/begin="[^"]*\.end"/.test(launchpad.CRISP_LAUNCHPAD_ICON_SVG),
-    "launchpad ripple must not wait for an animation end before restarting",
-  );
-});
-
-test("Static icon variants exist and are selected when reduced motion is requested", () => {
-  for (const [name, svg] of [
-    ["launchpad", launchpad.CRISP_LAUNCHPAD_ICON_STATIC],
-    ["now", launchpad.CRISP_NOW_ICON_STATIC],
-  ]) {
-    assert.ok(svg.startsWith("<svg"), `${name} static icon must be an svg`);
-    assert.ok(!svg.includes("<animate"), `${name} static icon must not animate`);
+test("Shared Launchpad and action panel icons register as static SVGs", () => {
+  for (const id of ["crisp-launchpad", "crisp-now"]) {
+    const svg = registeredIcons.get(id);
+    assert.match(svg, /^<svg[^>]*><circle[^>]*r="[1-9]/);
     assert.match(svg, /fill="currentColor"/);
+    assert.doesNotMatch(svg, /<animate|<set\b/);
   }
-  assert.equal(launchpad.crispIconVariant("launchpad", true), launchpad.CRISP_LAUNCHPAD_ICON_STATIC);
-  assert.equal(launchpad.crispIconVariant("now", true), launchpad.CRISP_NOW_ICON_STATIC);
-  assert.equal(launchpad.crispIconVariant("launchpad", false), launchpad.CRISP_LAUNCHPAD_ICON_SVG);
-  assert.equal(launchpad.crispIconVariant("now", false), launchpad.CRISP_NOW_ICON_SVG);
 });
 
 test("统一入口: 启动台默认落在「今天」，旧标签 id 自动迁移", () => {

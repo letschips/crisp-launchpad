@@ -182,6 +182,23 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   height: 20px;
 }
 
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .crisp-launchpad-view .launchpad-hero-icon:hover svg circle:nth-child(n+2) {
+    transform-origin: center;
+    animation: launchpad-hero-ripple 750ms cubic-bezier(.2, .6, .35, 1) backwards;
+  }
+
+  .crisp-launchpad-view .launchpad-hero-icon:hover svg circle:nth-child(3) {
+    animation-delay: 140ms;
+  }
+}
+
+@keyframes launchpad-hero-ripple {
+  0% { transform: scale(.55); opacity: 0; }
+  35% { opacity: .75; }
+  100% { transform: scale(1); }
+}
+
 .crisp-launchpad-view .launchpad-hero-title {
   font-size: 20px;
   font-weight: 600;

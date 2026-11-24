@@ -49,38 +49,15 @@ try {
 }
 
 const CRISP_LAUNCHPAD_ICON_ID = "crisp-launchpad";
-const CRISP_LAUNCHPAD_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3.1" fill="currentColor"/><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3.1"><animate attributeName="r" calcMode="spline" dur="1.5s" keySplines=".2,.6,.35,1" repeatCount="indefinite" values="3.1;11"/><animate attributeName="opacity" calcMode="spline" dur="1.5s" keySplines=".2,.6,.35,1" repeatCount="indefinite" values=".9;0"/></circle><circle cx="12" cy="12" r="3.1"><animate attributeName="r" begin="-0.5s" calcMode="spline" dur="1.5s" keySplines=".2,.6,.35,1" repeatCount="indefinite" values="3.1;11"/><animate attributeName="opacity" begin="-0.5s" calcMode="spline" dur="1.5s" keySplines=".2,.6,.35,1" repeatCount="indefinite" values=".9;0"/></circle><circle cx="12" cy="12" r="3.1"><animate attributeName="r" begin="-1s" calcMode="spline" dur="1.5s" keySplines=".2,.6,.35,1" repeatCount="indefinite" values="3.1;11"/><animate attributeName="opacity" begin="-1s" calcMode="spline" dur="1.5s" keySplines=".2,.6,.35,1" repeatCount="indefinite" values=".9;0"/></circle></g></svg>`;
 const CRISP_LAUNCHPAD_ICON_STATIC = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3.1" fill="currentColor"/><circle cx="12" cy="12" r="6.6" stroke="currentColor" stroke-width="1.8" opacity=".5"/><circle cx="12" cy="12" r="9.5" stroke="currentColor" stroke-width="1.5" opacity=".26"/></svg>`;
-
 const CRISP_NOW_ICON_ID = "crisp-now";
-const CRISP_NOW_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="3" fill="currentColor"/><g><circle cx="4" cy="12" r="3" fill="currentColor"/><circle cx="20" cy="12" r="3" fill="currentColor"/><animateTransform attributeName="transform" calcMode="spline" dur="1s" keySplines=".36,.6,.31,1;.36,.6,.31,1" repeatCount="indefinite" type="rotate" values="0 12 12;180 12 12;360 12 12"/></g></svg>`;
 const CRISP_NOW_ICON_STATIC = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="12" r="3"/><circle cx="20" cy="12" r="3"/></svg>`;
-
-function prefersReducedMotion() {
-  try {
-    return (
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches === true
-    );
-  } catch (error) {
-    return false;
-  }
-}
-
-function crispIconVariant(kind, reduced = prefersReducedMotion()) {
-  if (kind === "now") {
-    return reduced ? CRISP_NOW_ICON_STATIC : CRISP_NOW_ICON_SVG;
-  }
-  return reduced ? CRISP_LAUNCHPAD_ICON_STATIC : CRISP_LAUNCHPAD_ICON_SVG;
-}
 
 function crispRegisterIcons() {
   try {
     if (typeof registerIcon === "function") {
-      const reduced = prefersReducedMotion();
-      registerIcon(CRISP_LAUNCHPAD_ICON_ID, crispIconVariant("launchpad", reduced));
-      registerIcon(CRISP_NOW_ICON_ID, crispIconVariant("now", reduced));
+      registerIcon(CRISP_LAUNCHPAD_ICON_ID, CRISP_LAUNCHPAD_ICON_STATIC);
+      registerIcon(CRISP_NOW_ICON_ID, CRISP_NOW_ICON_STATIC);
     }
   } catch (error) {
     console.warn("[Crisp Launchpad] Failed to register custom icons:", error);
@@ -5769,11 +5746,7 @@ module.exports.dateKeyFromTimestamp = dateKeyFromTimestamp;
 module.exports.findingBasename = findingBasename;
 module.exports.normalizeActionKey = normalizeActionKey;
 module.exports.CRISP_LAUNCHPAD_ICON_ID = CRISP_LAUNCHPAD_ICON_ID;
-module.exports.CRISP_LAUNCHPAD_ICON_SVG = CRISP_LAUNCHPAD_ICON_SVG;
 module.exports.CRISP_NOW_ICON_ID = CRISP_NOW_ICON_ID;
-module.exports.CRISP_NOW_ICON_SVG = CRISP_NOW_ICON_SVG;
 module.exports.CRISP_LAUNCHPAD_ICON_STATIC = CRISP_LAUNCHPAD_ICON_STATIC;
 module.exports.CRISP_NOW_ICON_STATIC = CRISP_NOW_ICON_STATIC;
-module.exports.prefersReducedMotion = prefersReducedMotion;
-module.exports.crispIconVariant = crispIconVariant;
 module.exports.crispRegisterIcons = crispRegisterIcons;
