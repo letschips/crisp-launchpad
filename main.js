@@ -1736,20 +1736,23 @@ class LaunchpadRenderer {
     this.root.empty();
     this.renderHero();
     this.renderTabs();
+    this.renderFooter();
     this.renderedTabs = new Set();
     this.showTab(this.activeTab);
   }
 
+  /* 顶栏和 Crisp Pulse 一样：左边图标加页签，右边状态和工具，下方一条渐变分隔线。
+     工作台名字放进图标的悬停提示和页脚，日期放进「今天」那一行。 */
   renderHero() {
-    const card = this.root.createDiv({ cls: "launchpad-hero" });
-    const header = card.createDiv({ cls: "launchpad-hero-header" });
-    const titleGroup = header.createDiv({ cls: "launchpad-hero-title-group" });
-    const icon = titleGroup.createDiv({ cls: "launchpad-hero-icon" });
+    const header = this.root.createDiv({ cls: "launchpad-topbar" });
+    const main = header.createDiv({ cls: "launchpad-topbar-main" });
+    const icon = main.createDiv({ cls: "launchpad-hero-icon" });
     setIcon(icon, CRISP_LAUNCHPAD_ICON_ID);
-    const copy = titleGroup.createDiv();
-    copy.createDiv({ cls: "launchpad-hero-title", text: this.profile.heroTitle });
+    icon.setAttribute("aria-label", this.profile.heroTitle);
+    icon.setAttribute("data-tooltip-position", "bottom");
+    this.tabHost = main;
 
-    const actions = header.createDiv({ cls: "launchpad-actions" });
+    const actions = header.createDiv({ cls: "launchpad-actions launchpad-topbar-actions" });
     /* 内核状态胶囊：报告本机 ANKS 内核（Sidecar/bin/anks）能不能干活。
        原先这里显示的是「另一个插件（crisp-dsh）是否启用」—— 那既不是本产品的前置，
        也会让没装 DSH 的人看到「DSH 离线」而以为坏了。
@@ -1774,14 +1777,48 @@ class LaunchpadRenderer {
       pill.createSpan({ cls: dotCls });
       pill.createSpan({ text: label });
     }
-    actions.createDiv({
-      cls: "launchpad-date-badge",
-      text: new Intl.DateTimeFormat("zh-CN", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        weekday: "short",
-      }).format(new Date()),
+    const refresh = addButton(actions, "刷新", "launchpad-topbar-btn");
+    refresh.addEventListener("click", async () => {
+      refresh.disabled = true;
+      try {
+        await this.view.render();
+      } finally {
+        refresh.disabled = false;
+      }
+    });
+    /* 启用了 Crisp Search 时放一个放大镜，和 Pulse 顶栏同一个入口。 */
+    if (this.app.plugins?.enabledPlugins?.has?.("crisp-search") && this.plugin.hasCommand("crisp-search:open")) {
+      const search = actions.createEl("button", { cls: "launchpad-topbar-btn launchpad-topbar-icon-btn", attr: { type: "button", "aria-label": "搜索（Crisp Search）", "data-tooltip-position": "bottom" } });
+      setIcon(search, "search");
+      search.addEventListener("click", () => this.plugin.runCrispCommand("crisp-search:open", "Crisp Search"));
+    }
+  }
+
+  /* 页脚和 Pulse 同一套：左边名字和版本，中间工作台名，右边常用入口。没启用的插件不出现。 */
+  renderFooter() {
+    const footer = this.root.createDiv({ cls: "launchpad-footer" });
+    const brand = footer.createDiv({ cls: "launchpad-footer-brand" });
+    addIcon(brand, CRISP_LAUNCHPAD_ICON_ID, "launchpad-footer-icon");
+    brand.createSpan({ cls: "launchpad-footer-name", text: "Crisp Launchpad" });
+    const version = textOr(this.plugin.manifest?.version);
+    if (version) brand.createSpan({ cls: "launchpad-footer-version", text: version });
+    footer.createDiv({ cls: "launchpad-footer-caption", text: this.profile.heroTitle });
+    const links = footer.createDiv({ cls: "launchpad-footer-links" });
+    const link = (text, handler) => {
+      const button = links.createEl("button", { cls: "launchpad-footer-link", text, attr: { type: "button" } });
+      button.addEventListener("click", handler);
+    };
+    const enabled = this.app.plugins?.enabledPlugins;
+    if (enabled?.has?.(PULSE_PLUGIN_ID)) {
+      link("速记", () => this.plugin.runCrispCommand("crisp-pulse:open-memo-view", "Crisp Pulse 速记"));
+    }
+    if (this.plugin.usesTempo()) link("Tempo", () => this.plugin.openActionBoard());
+    if (enabled?.has?.(PULSE_PLUGIN_ID)) {
+      link("Pulse", () => this.plugin.runCrispCommand("crisp-pulse:open-crisp-pulse-view", "Crisp Pulse"));
+    }
+    link("设置", () => {
+      this.app.setting?.open?.();
+      this.app.setting?.openTabById?.(this.plugin.manifest?.id || "crisp-launchpad");
     });
   }
 
@@ -1880,7 +1917,7 @@ class LaunchpadRenderer {
   }
 
   renderTabs() {
-    const tabs = this.root.createDiv({ cls: "launchpad-tabs" });
+    const tabs = (this.tabHost || this.root).createDiv({ cls: "launchpad-tabs" });
     for (const page of this.tabs) {
       const button = tabs.createEl("button", {
         cls: `launchpad-tab${page.id === this.activeTab ? " is-active" : ""}`,
@@ -2390,6 +2427,12 @@ class LaunchpadRenderer {
     }
     if (!items.length) return;
     const strip = parent.createDiv({ cls: "launchpad-today-strip" });
+    const head = strip.createDiv({ cls: "launchpad-today-head" });
+    head.createDiv({ cls: "launchpad-today-head-label", text: "今天" });
+    head.createDiv({
+      cls: "launchpad-today-head-date",
+      text: new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" }).format(new Date()),
+    });
     for (const item of items) {
       const zero = item.value === "0" || item.value === "0 天";
       const cell = strip.createDiv({ cls: `launchpad-today-item${item.warn ? " is-warning" : ""}${zero ? " is-zero" : ""}` });

@@ -314,7 +314,8 @@ async function renderView(plugin, viewType) {
   // Visit each page: lazy tabs must still exercise every render path.
   if (viewType === "crisp-launchpad-view") {
     const root = view.contentEl.children[0];
-    const tabs = root.children.find(child => child.classes.has("launchpad-tabs"));
+    /* 0.16：页签在顶栏里，不再是根节点的直接子元素。 */
+    const tabs = findAll(root, (el) => el.classes?.has("launchpad-tabs"))[0];
     for (const button of tabs?.children || []) {
       for (const click of button.listeners.click || []) click();
     }
@@ -424,8 +425,7 @@ test("冒烟：工作台形态决定实际渲染出哪些页签", async () => {
     plugin.settings.workspaceMode = mode;
     const { view } = await renderView(plugin, "crisp-launchpad-view");
     const root = view.contentEl.children[0];
-    const labels = [...root.children]
-      .filter((child) => child.classes.has("launchpad-tabs"))
+    const labels = findAll(root, (el) => el.classes?.has("launchpad-tabs"))
       .flatMap((tabs) => tabs.children.map((button) => button.textContent));
     assert.deepEqual(labels, expected, `形态 ${mode} 的页签不符`);
     const text = root.allText();
