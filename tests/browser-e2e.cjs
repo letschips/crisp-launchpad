@@ -66,5 +66,64 @@ const results=[];let browser;
  await check('review rhythm reads Pulse days and switches range',async()=>{await page.locator('.launchpad-tab').filter({hasText:'复盘'}).click();const card=page.locator('.launchpad-pulse-rhythm');assert.equal(await card.locator('.launchpad-pulse-bar').count(),30);assert.equal(await card.locator('.launchpad-pulse-bar.is-missing').count(),6);await card.getByRole('tab',{name:'7 天'}).click();assert.equal(await card.locator('.launchpad-pulse-bar').count(),7);await card.getByRole('tab',{name:'30 天'}).click();await card.screenshot({path:path.join(out,'rhythm.png')});});
  await check('wide tabs render the two-layer cards in both themes',async()=>{for(const dark of [false,true]){await page.evaluate(d=>{document.body.classList.toggle('theme-dark',d);document.body.classList.toggle('theme-light',!d);fixture.main.contentEl.style.width='1100px';},dark);for(const name of ['今天','创作','知识','复盘','系统']){await page.locator('.launchpad-tab').filter({hasText:name}).click();const stray=await page.evaluate(()=>[...fixture.main.contentEl.querySelectorAll('.launchpad-card')].filter(c=>[...c.children].some(k=>!k.classList.contains('launchpad-card-header')&&!k.classList.contains('launchpad-inset'))).length);assert.equal(stray,0,`${name} stray card content`);await page.evaluate(()=>{fixture.main.contentEl.scrollTop=0;});await page.screenshot({path:path.join(out,`wide-${dark?'dark':'light'}-${name}.png`)});}}await page.locator('.launchpad-tab').filter({hasText:'今天'}).click();assert.match(await page.locator('.launchpad-today-strip').innerText(),/37\.5[\s\S]*贡献分[\s\S]*速记待处理/);});
  await check('all tabs fit a narrow pane in both themes',async()=>{for(const dark of [false,true]){await page.evaluate(d=>{document.body.classList.toggle('theme-dark',d);document.body.classList.toggle('theme-light',!d);fixture.main.contentEl.style.width='390px';fixture.main.contentEl.style.boxSizing='border-box';},dark);for(const name of ['今天','创作','知识','复盘','系统']){await page.locator('.launchpad-tab').filter({hasText:name}).click();if(name==='系统'){const h=await page.evaluate(()=>{const e=fixture.main.contentEl.querySelector('.launchpad-finding-group.is-open .launchpad-finding-path, .launchpad-finding-path');const g=e?.closest('.launchpad-finding-group');if(g&&!g.classList.contains('is-open'))g.querySelector('.launchpad-finding-group-name').click();return fixture.main.contentEl.querySelector('.launchpad-finding-path')?.getBoundingClientRect().height||0;});assert.ok(h>8,`narrow finding path height ${h}`);}const overflow=await page.evaluate(()=>fixture.main.contentEl.scrollWidth-fixture.main.contentEl.clientWidth);assert.ok(overflow<=1,`${name} overflow ${overflow}`);}await page.screenshot({path:path.join(out,dark?'narrow-dark.png':'narrow-light.png')});}});
+ await check('Today opens the exact action, memo and active project destinations',async()=>{
+  await page.evaluate(async()=>{
+   fixture.main.contentEl.style.width='1000px';document.body.className='theme-light';
+   const d=module.exports.dateKeyFromTimestamp(Date.now());
+   const task=(id,title,bucket,status='todo')=>({id,title,bucket,status});
+   fixture.tempo.getActionOverview=async()=>({apiVersion:1,licensed:true,tasks:[task('today','写今天的稿','today'),task('late','逾期核对','overdue'),task('waiting','等反馈','waiting'),task('done','完成归档','done','done'),...Array.from({length:20},(_,i)=>task(`more-${i}`,`行动 ${i}`,'today'))]});
+   fixture.tempo.revealTask=async id=>{window.revealedTask=id;};
+   const pulse=fixture.app.plugins.plugins['crisp-pulse'];
+   pulse.getMemoBacklog=async()=>({from:'2026-01-02',to:'2026-01-08',days:7,pending:3});
+   pulse.openMemoQuery=async args=>{window.memoQuery=args;};
+   const File=fixture.files.values().next().value.constructor;
+   function project(id,title,stage,status,publication,planned,age){
+    const dir=`Topics/demo/content-projects/${id}`;
+    const article=new File(`${dir}/article.md`,'',{content_role:'article',type:'output',title,stage:'drafting',status:'draft'});
+    const control=new File(`${dir}/project.md`,'',{content_role:'project-control',type:'output',stage,status,publication_status:publication,planned_publish_at:planned});
+    article.stat.mtime=control.stat.mtime=Date.now()-age*86400000;
+    for(const f of [article,control]) fixture.files.set(f.path,f);
+   }
+   project('DUE','有计划发布日期','visual','draft','not-published',d,10);
+   project('RECENT','最近编辑的稿','drafting','draft','not-published','',1);
+   project('OLDER','较早的稿','research','draft','not-published','',5);
+   project('PARKED','搁置项目','drafting','parked','not-published',d,0);
+   project('LIVE','已上线项目','publish-ready','draft','live',d,0);
+   project('REVIEW','复盘项目','reviewing','published','live',d,0);
+   project('SCHEDULED','已排定发布','publish-ready','draft','scheduled',d,0);
+   // The shared fixture's article-only drafts (内容 0–5) are active too; age them so ordering is decided by the cases below.
+   for(const f of fixture.files.values()) if(/content-projects\/P-\d+\/article\.md$/.test(f.path)) f.stat.mtime=Date.now()-30*86400000;
+   // XHS projects carry their state on article.md only; no project.md control card.
+   // Their title lives only in the first H1, not in frontmatter.
+   fixture.app.metadataCache.getFileCache=f=>({frontmatter:f.fm,headings:f.headings});
+   function articleOnly(id,title,stage,status,age){const f=new File(`Topics/demo/content-projects/${id}/article.md`,'',{content_role:'article',type:'output',stage,status,publication_status:'not-published'});f.headings=[{level:1,heading:title}];f.stat.mtime=Date.now()-age*86400000;fixture.files.set(f.path,f);}
+   articleOnly('XHS-DRAFT','只有稿件的项目','style-check','draft',3);
+   articleOnly('XHS-PARKED','只有稿件的搁置项目','drafting','parked',0);
+   const extra=new File('Topics/demo/content-projects/DUE/titles.md','',{content_role:'article',type:'output',title:'不应选中的支持文件',stage:'drafting',status:'draft'});
+   fixture.files.set(extra.path, extra);
+   await fixture.main.render();
+  });
+  await page.locator('.launchpad-tab').filter({hasText:'今天'}).click();
+  const today=page.locator('.launchpad-page.is-active');
+  await today.getByRole('button',{name:/^行动 22：/}).click();
+  const card=today.locator('.launchpad-action-card');
+  assert.equal(await card.getByRole('tab',{name:/今日待办/}).getAttribute('aria-selected'),'true');
+  assert.equal(await card.locator('.launchpad-action-item').count(),22);
+  assert.equal(await card.getByRole('button',{name:/打开行动：等反馈|打开行动：完成归档/}).count(),0);
+  await card.getByRole('button',{name:'打开行动：逾期核对'}).click();
+  assert.equal(await page.evaluate(()=>window.revealedTask),'late');
+  await today.getByRole('button',{name:/^速记待处理 3：/}).click();
+  assert.deepEqual(await page.evaluate(()=>window.memoQuery),{from:'2026-01-02',to:'2026-01-08',converted:false});
+  const projects=today.locator('.launchpad-today-projects');
+  assert.deepEqual(await projects.locator('.launchpad-row-title').allTextContents(),['有计划发布日期','最近编辑的稿','只有稿件的项目']);
+  assert.match(await projects.innerText(),/配图\/视觉/);
+  await projects.getByRole('button',{name:'打开内容项目：有计划发布日期'}).click();
+  assert.equal(await page.evaluate(()=>window.lastOpened),'Topics/demo/content-projects/DUE/article.md');
+  for(const width of [1000,390]){
+   await page.evaluate(w=>{fixture.main.contentEl.style.width=w+'px';fixture.main.contentEl.scrollTop=0;},width);
+   assert.ok(await page.evaluate(()=>fixture.main.contentEl.scrollWidth-fixture.main.contentEl.clientWidth)<=1);
+   await page.screenshot({path:path.join(out,`today-destinations-${width}.png`)});
+  }
+ });
  await browser.close();fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({time:new Date().toISOString(),results},null,2));console.log(JSON.stringify(results,null,2));if(results.some(r=>!r.pass))process.exitCode=1;
 })().catch(async e=>{console.error(e);await browser?.close();process.exitCode=1;});

@@ -1769,12 +1769,16 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   white-space: nowrap;
 }
 .crisp-launchpad-view .launchpad-today-item.is-warning .launchpad-today-value { color: var(--color-orange); }
-.crisp-launchpad-view .launchpad-today-label {
+.crisp-launchpad-view .launchpad-today-caption {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   margin-top: 4px;
-  font-size: 12px;
   color: var(--text-muted);
-  white-space: nowrap;
 }
+.crisp-launchpad-view .launchpad-today-caption svg { width: 14px; height: 14px; }
+.crisp-launchpad-view .launchpad-today-label { font-size: 12px; white-space: nowrap; }
+.crisp-launchpad-view .launchpad-today-projects .launchpad-breakdown-card { min-height: 0; }
 
 /* 待你判断：一行一类，数量在前，点进复盘页。 */
 .crisp-launchpad-view .launchpad-judge-list { display: flex; flex-direction: column; margin: -6px -8px; }

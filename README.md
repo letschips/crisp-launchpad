@@ -11,6 +11,7 @@ only interfaces.
 - Native `ItemView` instead of a DataviewJS note.
 - System status from `.runtime/snapshot/health.json` and `index.json`.
 - Today strip: actions, Tempo completions, Crisp Pulse score / streak / pending memos, and inbox total; each item appears only when its source is available.
+- Every Today number opens the records behind it: actions filter in place, pending memos open in Crisp Pulse, and "继续创作" lists up to three active content projects.
 - Today / waiting / upcoming actions from Crisp Tempo (the only action source; see `docs/ROLE-CONTRACT.md`), filtered with a segmented control.
 - Two-layer cards and segmented tabs shared with Crisp Pulse.
 - Review rhythm from Crisp Pulse daily scores (7 / 30 / 90 days); unrecorded days are shown as gaps, not zeros.

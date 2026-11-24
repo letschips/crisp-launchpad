@@ -650,6 +650,7 @@ const CRISP_TOOL_GROUPS = [
     tools: [
       { plugin: "crisp-pulse", command: "crisp-pulse:quick-memo", name: "速记", icon: "pencil-line" },
       { plugin: "crisp-asr", command: "crisp-asr:open", name: "转写", icon: "mic" },
+      { plugin: "crisp-visual", command: "crisp-visual:crisp-visual-paste-clipboard", name: "剪贴板图片", icon: "image-plus" },
     ],
   },
   {
@@ -950,8 +951,11 @@ function markProcessedContent(content, now = new Date(), topic = "self-media", i
 }
 
 function pageRecord(app, file) {
-  const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter || {};
+  const cache = app.metadataCache.getFileCache(file);
+  const frontmatter = cache?.frontmatter || {};
   return {
+    /* 小红书项目的 article.md 不写 title，标题只在正文第一个一级标题里。 */
+    heading: textOr(cache?.headings?.find((heading) => heading.level === 1)?.heading).trim(),
     file,
     path: file.path,
     name: file.basename,
@@ -1025,7 +1029,9 @@ function buildStageBuckets(articles) {
 }
 
 function articleLabel(article) {
-  if (article.title) return article.title;
+  // title 没写时 pageRecord 会退回文件名（article），这时用正文一级标题。
+  if (article.title && (article.title !== article.name || !article.heading)) return article.title;
+  if (article.heading) return article.heading;
   const segment = article.folder.split("/").filter(Boolean).pop();
   return segment ? segment.replace(/^[A-Z0-9]+-/i, "") : article.name;
 }
@@ -1978,7 +1984,7 @@ class LaunchpadRenderer {
     seg.setAttribute("aria-label", "行动分组");
     const countDefs = [
       ["overdue", "逾期"],
-      ["today", "今天"],
+      ["today", "今日待办"],
       ["waiting", "等待"],
       ["upcoming", "即将"],
       ["anytime", "随时"],
@@ -1997,6 +2003,11 @@ class LaunchpadRenderer {
     let currentFilter = this.view.activeActionFilter || null;
     if (currentFilter && !countDefs.some(([key]) => key === currentFilter)) currentFilter = null;
     const segButtons = new Map();
+    const selectFilter = (key) => {
+      currentFilter = key;
+      this.view.activeActionFilter = key;
+      updateActionView();
+    };
     const addSegButton = (key, label, num = null) => {
       const button = seg.createEl("button", {
         cls: `launchpad-seg-btn${num === 0 ? " is-zero" : ""}`,
@@ -2004,15 +2015,13 @@ class LaunchpadRenderer {
       });
       button.createSpan({ text: label });
       if (num !== null) button.createSpan({ cls: "launchpad-seg-count", text: String(num) });
-      button.addEventListener("click", () => {
-        currentFilter = key;
-        this.view.activeActionFilter = currentFilter;
-        updateActionView();
-      });
+      button.addEventListener("click", () => selectFilter(key));
       segButtons.set(key, button);
     };
     addSegButton(null, "全部", null);
-    for (const [key, label] of countDefs) addSegButton(key, label, Number(countsSource[key] || 0));
+    for (const [key, label] of countDefs) {
+      addSegButton(key, label, key === "today" ? wipActive : Number(countsSource[key] || 0));
+    }
 
     const bodyWrap = card.createDiv({ cls: "launchpad-action-body-wrap" });
     const statusEl = card.createDiv({ cls: "launchpad-action-status" });
@@ -2063,18 +2072,19 @@ class LaunchpadRenderer {
       } else {
         const empty = {
           overdue: "没有逾期的行动",
-          today: "今天没有安排行动",
+          today: "没有今天或逾期的行动",
           waiting: "没有在等别人的事",
           upcoming: "近期没有排期",
           anytime: "随时池是空的",
           inbox: "Tempo 收件箱是空的",
         }[currentFilter] || "当前没有行动";
-        const filteredTasks = getBucketTasks(currentFilter);
+        const isToday = currentFilter === "today";
+        const filteredTasks = isToday ? [...getBucketTasks("overdue"), ...getBucketTasks("today")] : getBucketTasks(currentFilter);
         const listContainer = bodyWrap.createDiv({ cls: "launchpad-action-list is-single-column" });
         if (!filteredTasks.length) {
           this.renderEmpty(listContainer, empty);
         } else {
-          this.renderActionItems(listContainer, filteredTasks, 20);
+          this.renderActionItems(listContainer, filteredTasks, isToday ? filteredTasks.length : 20);
         }
       }
       if (!useLive) {
@@ -2083,6 +2093,11 @@ class LaunchpadRenderer {
     };
 
     updateActionView();
+    return () => {
+      selectFilter("today");
+      card.scrollIntoView?.({ block: "start" });
+      segButtons.get("today")?.focus({ preventScroll: true });
+    };
   }
 
   renderActionItems(container, items, limit = 8) {
@@ -2282,8 +2297,9 @@ class LaunchpadRenderer {
 
   renderToday() {
     // 首屏聚焦行动、需要人判断的事项和一句系统状态；统计与完整队列放在次级页。
-    this.renderTodayStrip(this.panels.today);
-    this.renderActionCard(this.panels.today);
+    this.renderTodayStrip(this.panels.today, () => showTodayActions());
+    const showTodayActions = this.renderActionCard(this.panels.today);
+    if (this.hasTab("create")) this.renderTodayProjects(this.panels.today);
     if (this.profile.features.review && this.hasTab("review")) {
       this.renderTodayReviewSummary(this.panels.today);
     }
@@ -2292,7 +2308,7 @@ class LaunchpadRenderer {
   }
 
   /* 今天一行：各项只在数据源可用时出现。邻居插件没装、读失败或返回 null 时整项不显示，不当成 0。 */
-  renderTodayStrip(parent) {
+  renderTodayStrip(parent, showTodayActions) {
     const items = [];
     const signals = this.snapshots.signals || {};
     if (this.plugin.usesTempo() && Array.isArray(this.snapshots.tasks)) {
@@ -2300,36 +2316,37 @@ class LaunchpadRenderer {
       const due = open.filter((task) => task.bucket === "overdue" || task.bucket === "today").length;
       const overdue = open.filter((task) => task.bucket === "overdue").length;
       items.push({
-        label: "行动", value: String(due), warn: overdue > 0,
+        icon: CRISP_NOW_ICON_ID, label: "行动", value: String(due), warn: overdue > 0,
         hint: overdue ? `今天 ${due - overdue} 项，逾期 ${overdue} 项` : "今天要做的行动",
-        open: () => this.plugin.openActionBoard(),
+        open: showTodayActions,
       });
       if (Number.isFinite(signals.completed)) {
-        items.push({ label: "已完成", value: String(signals.completed), hint: "今天在 Tempo 完成", open: () => this.plugin.openActionBoard() });
+        items.push({ icon: "circle-check", label: "已完成", value: String(signals.completed), hint: "今天在 Tempo 完成", open: () => this.plugin.openActionBoard() });
       }
     }
     const pulse = signals.pulse;
     if (pulse) {
       const openPulse = () => this.plugin.runCrispCommand("crisp-pulse:open-crisp-pulse-view", "Crisp Pulse");
-      items.push({ label: "贡献分", value: formatScore(pulse.score), hint: "Crisp Pulse 今天的贡献分", open: openPulse });
-      items.push({ label: "连续", value: `${Number(pulse.streak) || 0} 天`, hint: "连续有产出的天数", open: openPulse });
-      const backlog = signals.memoBacklog;
-      if (backlog) {
-        items.push({
-          label: "速记待处理", value: String(Number(backlog.pending)), hint: `近 ${backlog.days} 天还没转成任务或笔记的速记`,
-          open: () => this.plugin.openMemoBacklog(backlog),
-        });
-      } else if (pulse.memos && Number.isFinite(Number(pulse.memos.pending))) {
-        items.push({
-          label: "速记待处理", value: String(Number(pulse.memos.pending)), hint: "今天记下、还没转成任务或笔记的速记",
-          open: () => this.plugin.runCrispCommand("crisp-pulse:open-memo-view", "Crisp Pulse 速记"),
-        });
-      }
+      items.push({ icon: "activity", label: "贡献分", value: formatScore(pulse.score), hint: "Crisp Pulse 今天的贡献分", open: openPulse });
+      items.push({ icon: "flame", label: "连续", value: `${Number(pulse.streak) || 0} 天`, hint: "连续有产出的天数", open: openPulse });
+    }
+    const backlog = signals.memoBacklog;
+    if (backlog) {
+      items.push({
+        icon: "sticky-note", label: "速记待处理", value: String(Number(backlog.pending)), hint: `近 ${backlog.days} 天还没转成任务或笔记的速记`,
+        open: () => this.plugin.openMemoBacklog(backlog),
+      });
+    } else if (pulse?.memos && Number.isFinite(Number(pulse.memos.pending))) {
+      items.push({
+        icon: "sticky-note", label: "速记待处理", value: String(Number(pulse.memos.pending)), hint: "今天记下、还没转成任务或笔记的速记",
+        open: () => isDateKey(pulse.date) ? this.plugin.openMemoBacklog({ from: pulse.date, to: pulse.date })
+          : this.plugin.runCrispCommand("crisp-pulse:open-memo-view", "Crisp Pulse 速记"),
+      });
     }
     if (this.profile.features.workGrid) {
       const inbox = this.summary.inbox.length;
       items.push({
-        label: "待整理", value: String(inbox), hint: "全库 raw/inbox 里还没归位的材料",
+        icon: "inbox", label: "待整理", value: String(inbox), hint: "全库 raw/inbox 里还没归位的材料",
         open: () => this.showTab("knowledge"),
       });
     }
@@ -2338,9 +2355,56 @@ class LaunchpadRenderer {
     for (const item of items) {
       const cell = strip.createDiv({ cls: `launchpad-today-item${item.warn ? " is-warning" : ""}` });
       cell.createDiv({ cls: "launchpad-today-value", text: item.value });
-      cell.createDiv({ cls: "launchpad-today-label", text: item.label });
+      const caption = cell.createDiv({ cls: "launchpad-today-caption" });
+      addIcon(caption, item.icon).setAttribute("aria-hidden", "true");
+      caption.createSpan({ cls: "launchpad-today-label", text: item.label });
       cell.setAttribute("data-tooltip-position", "top");
       makeClickable(cell, item.open, `${item.label} ${item.value}：${item.hint}`);
+    }
+  }
+
+  renderTodayProjects(parent) {
+    const topic = primaryContentTopic(this.capabilities);
+    if (!topic) return;
+    const prefix = `${contentProjectsPath(topic)}/`;
+    const controls = new Map(this.pages
+      .filter((page) => page.content_role === "project-control" && page.path === `${page.folder}/project.md` && page.folder.startsWith(prefix))
+      .map((page) => [page.folder, page]));
+    const projects = [];
+    for (const article of this.summary.articles) {
+      if (article.path !== `${article.folder}/article.md`) continue;
+      const control = controls.get(article.folder);
+      // 和创作页一样：有控制卡以控制卡为准，没有（小红书项目）就看稿件本身。
+      // 已排定发布、已发、搁置和复盘项目不提示继续做。
+      const state = control || article;
+      const stage = STAGE_ORDER.indexOf(state.stage);
+      if (state.status !== "draft" || stage < 0 || stage >= STAGE_ORDER.indexOf("reviewing") ||
+          ["scheduled", "live", "withdrawn"].includes(state.publication_status)) continue;
+      const planned = textOr(control?.frontmatter?.planned_publish_at);
+      const updated = Math.max(knownTimestamp(state.frontmatter?.updated_at) ?? 0, control?.mtime ?? 0, article.mtime);
+      projects.push({ article, stage: state.stage, planned: isDateKey(planned) ? planned : "", updated });
+    }
+    if (!projects.length) return;
+    projects.sort((a, b) => Number(Boolean(b.planned)) - Number(Boolean(a.planned)) ||
+      a.planned.localeCompare(b.planned) || b.updated - a.updated || a.article.path.localeCompare(b.article.path));
+    const card = parent.createDiv({ cls: "launchpad-card launchpad-today-projects" });
+    const header = card.createDiv({ cls: "launchpad-card-header" });
+    const title = header.createDiv({ cls: "launchpad-card-title" });
+    addIcon(title, "folder-open");
+    title.createSpan({ text: "继续创作" });
+    const list = card.createDiv({ cls: "launchpad-breakdown-card" });
+    const today = dateKey(new Date());
+    for (const { article, stage, planned } of projects.slice(0, 3)) {
+      const label = articleLabel(article);
+      const row = list.createDiv({ cls: "launchpad-breakdown-row" });
+      const left = row.createDiv({ cls: "launchpad-row-left" });
+      left.createDiv({ cls: "launchpad-row-title", text: label });
+      const right = row.createDiv({ cls: "launchpad-row-right" });
+      right.createSpan({ cls: "launchpad-badge", text: stageLabel(stage) });
+      const publish = publishCountdown({ planned_publish_at: planned }, today);
+      if (publish) right.createSpan({ cls: `launchpad-action-due ${publish.tone}`.trim(), text: publish.text });
+      addIcon(right, "chevron-right", "launchpad-judge-go");
+      makeClickable(row, () => this.view.openTarget(article.path, label), `打开内容项目：${label}`);
     }
   }
 
