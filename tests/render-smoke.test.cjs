@@ -696,7 +696,10 @@ test("计数口径：待整理在今天一行、知识页 KPI 和待整理卡片
   assert.equal(stripItem.children[0].textContent, String(expected), "今天一行");
   const kpi = findAll(view.contentEl, (el) => el.classes?.has("launchpad-kpi-box") && el.children[0]?.textContent === "待整理")[0];
   assert.equal(kpi.children[1].textContent, String(expected), "知识页 KPI");
-  assert.ok(kpi.children[2].textContent.includes("main-business") && kpi.children[2].textContent.includes("self-media"), kpi.children[2].textContent);
+  /* 0.15：分布从卡片第三行移到悬停提示，卡片上只剩名字和数。 */
+  const hint = kpi.getAttribute("aria-label");
+  assert.ok(hint.includes("main-business") && hint.includes("self-media"), hint);
+  assert.equal(kpi.children.length, 2, "KPI 卡片不再有副标题行");
   const card = findAll(view.contentEl, (el) => el.classes?.has("launchpad-inbox-card"))[0];
   assert.ok(card, "知识页应有待整理卡片");
   assert.ok(card.allText().includes(`${expected} 条`), card.allText());

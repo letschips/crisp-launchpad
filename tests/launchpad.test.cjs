@@ -825,6 +825,31 @@ test("节奏: 通用文件名在列表里用父目录限定，不再一屏都是
   );
 });
 
+test("0.15: 没写 title 的稿件在各列表显示正文一级标题；平台显示中文名", () => {
+  assert.equal(
+    launchpad.pageLabel({
+      title: "article",
+      name: "article",
+      heading: "空白页只放没用的东西",
+      path: "Topics/self-media/content-projects/XHS-20261120-RIPPLE-SAND-GARDEN/article.md",
+    }),
+    "空白页只放没用的东西",
+  );
+  assert.equal(
+    launchpad.pageLabel({ title: "笔记", name: "笔记", heading: "另一个标题", path: "Topics/x/raw/inbox/笔记.md" }),
+    "笔记",
+    "普通文件名不被正文标题替换",
+  );
+  assert.equal(launchpad.platformLabel("xiaohongshu"), "小红书");
+  assert.equal(launchpad.platformLabel("wechat"), "公众号");
+  assert.equal(launchpad.platformLabel("bilibili"), "bilibili", "未知平台原样显示");
+  assert.equal(launchpad.platformLabel(""), "");
+  assert.deepEqual(launchpad.splitValueUnit("16 天"), ["16", "天"]);
+  assert.deepEqual(launchpad.splitValueUnit("35.4 小时"), ["35.4", "小时"]);
+  assert.deepEqual(launchpad.splitValueUnit("28 / 29"), ["28 / 29", ""], "比值不拆");
+  assert.deepEqual(launchpad.splitValueUnit("39"), ["39", ""]);
+});
+
 test("陌生库：捕获不再凭空造出 Topics/self-media", async () => {
   const withActive = (path) => ({ workspace: { getActiveFile: () => ({ path }) } });
   assert.equal(launchpad.captureTargetTopic(withActive("Notes/a.md"), []), "", "没有 Topic 时必须留空");

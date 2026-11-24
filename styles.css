@@ -492,16 +492,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   margin: 0;
 }
 
-.crisp-launchpad-view .launchpad-kpi-sub {
-  font-size: 10px;
-  color: var(--text-faint);
-  font-weight: 400;
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .crisp-launchpad-view .launchpad-review-header {
   flex-wrap: wrap;
 }
@@ -535,14 +525,6 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   font-weight: 600;
 }
 
-.crisp-launchpad-view .launchpad-review-metric-detail {
-  margin-top: 2px;
-  color: var(--text-faint);
-  font-size: 10px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-
 /* Two-column layout */
 .crisp-launchpad-view .launchpad-grid-2 {
   display: grid;
@@ -569,9 +551,13 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   display: flex;
   flex-direction: column;
   min-height: 82px;
-  justify-content: center;
-  /* 让行数少的一侧也把空白收进列表区，而不是留成卡片底部空洞 */
+  /* 有内容时列表从顶部排；和邻卡等高时多出的空白留在列表下方，不把行挤到中间。只有空状态才居中。 */
+  justify-content: flex-start;
   flex: 1;
+}
+
+.crisp-launchpad-view .launchpad-breakdown-card:has(> .is-empty:only-child) {
+  justify-content: center;
 }
 
 .crisp-launchpad-view .launchpad-breakdown-row {
@@ -1131,16 +1117,21 @@ body.is-mobile .crisp-launchpad-quick-modal .launchpad-quick-content-setting tex
   display: none;
 }
 
+/* 箭头用边框画，不用「▸」字符：等宽或宋体界面字体里那个字符又小又偏。 */
 .crisp-launchpad-view .launchpad-system-drawer-summary::before {
-  content: "▸";
+  content: "";
   display: inline-block;
-  width: 14px;
-  color: var(--text-faint);
+  width: 6px;
+  height: 6px;
+  margin: 0 8px 1px 2px;
+  border-right: 1.5px solid var(--text-faint);
+  border-bottom: 1.5px solid var(--text-faint);
+  transform: rotate(-45deg);
   transition: transform var(--crisp-dur) var(--crisp-ease);
 }
 
 .crisp-launchpad-view .launchpad-system-drawer[open] > .launchpad-system-drawer-summary::before {
-  transform: rotate(90deg);
+  transform: rotate(45deg);
 }
 
 .crisp-launchpad-view .launchpad-system-drawer-body {
@@ -1956,4 +1947,90 @@ body.is-translucent:not(.is-popout-window):not(.is-popout-modal) .crisp-launchpa
   font-size: 12px;
   color: var(--text-faint);
   align-self: center;
+}
+
+/* --------------------------------------------------------------------------
+   0.15 降噪：零值退后、空栏不占位、状态只标例外、行内操作悬停才出现
+   -------------------------------------------------------------------------- */
+
+/* 数字为 0 的格子退到浅色，让有事的那几格先被看见。 */
+.crisp-launchpad-view .launchpad-today-item.is-zero .launchpad-today-value,
+.crisp-launchpad-view .launchpad-kpi-box.is-zero .launchpad-kpi-val,
+.crisp-launchpad-view .launchpad-review-metric.is-zero .launchpad-review-metric-value {
+  color: var(--text-faint);
+}
+.crisp-launchpad-view .launchpad-today-unit {
+  margin-left: 3px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-muted);
+  letter-spacing: 0;
+}
+
+/* 行动台：只有一栏有内容时占满宽度，上方一句说明今天没有排期。 */
+.crisp-launchpad-view .launchpad-action-grid.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.crisp-launchpad-view .launchpad-action-grid.is-single .launchpad-action-column {
+  padding: 0;
+  border: 0;
+}
+.crisp-launchpad-view .launchpad-action-note {
+  padding: 2px 4px 4px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* 创作流水线：阶段是小节标题，不是又一个胶囊。 */
+.crisp-launchpad-view .launchpad-breakdown-row.launchpad-stage-head {
+  padding-top: 14px;
+  cursor: default;
+}
+.crisp-launchpad-view .launchpad-breakdown-row.launchpad-stage-head:first-child {
+  padding-top: 4px;
+}
+.crisp-launchpad-view .launchpad-breakdown-row.launchpad-stage-head:hover {
+  background: transparent;
+}
+.crisp-launchpad-view .launchpad-stage-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.crisp-launchpad-view .launchpad-stage-count {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 状态例外（搁置、废弃）：无边框的浅灰底，和按钮分开；搁置是「先不管」，不用警示色。 */
+.crisp-launchpad-view .launchpad-status-chip {
+  padding: 1px 7px;
+  border-radius: var(--crisp-radius-pill);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+/* 行内操作（推进、转化、复盘）在指到那一行或键盘聚焦时才出现；触屏一直显示。 */
+@media (hover: hover) {
+  .crisp-launchpad-view .launchpad-breakdown-row > .launchpad-row-right > button.launchpad-row-action {
+    opacity: 0;
+    transition: opacity var(--crisp-dur-fast) var(--crisp-ease);
+  }
+  .crisp-launchpad-view .launchpad-breakdown-row:is(:hover, :focus-within) > .launchpad-row-right > button.launchpad-row-action,
+  .crisp-launchpad-view .launchpad-breakdown-row > .launchpad-row-right > button.launchpad-row-action:focus-visible {
+    opacity: 1;
+  }
+}
+
+.crisp-launchpad-view .launchpad-pulse-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }

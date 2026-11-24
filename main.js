@@ -1048,6 +1048,8 @@ function contentProjectLabel(pages, project) {
   const article = contentProjectArticle(pages, textOr(project?.dir));
   const title = textOr(article?.title).trim();
   if (title && !["article", "titles"].includes(title.toLowerCase())) return title;
+  const heading = textOr(article?.heading).trim();
+  if (heading) return heading;
   const fallback = textOr(project?.content_id, project?.dir || "内容项目");
   return fallback.replace(/^[A-Z0-9]+-/i, "").replace(/[_-]+/g, " ");
 }
@@ -1324,7 +1326,22 @@ function pageLabel(page) {
   const title = textOr(page?.title, "");
   const name = textOr(page?.name, "");
   if (title && title !== name) return title;
+  /* 小红书稿件不写 title，标题在正文一级标题里；只对 article.md 这类通用名生效。 */
+  const heading = textOr(page?.heading, "").trim();
+  if (heading && GENERIC_DOC_NAMES.has(name.toLowerCase())) return heading;
   return findingBasename({ path: textOr(page?.path, "") });
+}
+
+function pageTypeLabel(type) {
+  const key = textOr(type).trim();
+  return key ? PAGE_TYPE_LABEL[key.toLowerCase()] || key : PAGE_TYPE_LABEL.other;
+}
+
+const PLATFORM_LABEL = { xiaohongshu: "小红书", wechat: "公众号" };
+
+function platformLabel(platform) {
+  const key = textOr(platform).trim();
+  return PLATFORM_LABEL[key.toLowerCase()] || key;
 }
 
 const BLOCKING_ACTION_PREFIX = "处理系统阻塞：";
@@ -1494,6 +1511,12 @@ function topicBreakdown(pages) {
   const entries = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   if (entries.length <= 1) return entries[0]?.[0] || "";
   return entries.map(([topic, count]) => `${topic} ${count}`).join(" · ");
+}
+
+/* 「16 天」「35.4 小时」拆成数字和单位，单位小一号；「28 / 29」这类比值不拆。 */
+function splitValueUnit(value) {
+  const match = /^(.*\d)\s+([^\d\s/]+)$/.exec(textOr(value));
+  return match ? [match[1], match[2]] : [textOr(value), ""];
 }
 
 function formatScore(value) {
@@ -2040,34 +2063,34 @@ class LaunchpadRenderer {
       }
 
       if (!currentFilter) {
-        const grid = bodyWrap.createDiv({ cls: "launchpad-action-grid" });
         const overdueTasks = getBucketTasks("overdue");
         const todayTasks = getBucketTasks("today");
         const waitingTasks = getBucketTasks("waiting");
         const upcomingTasks = getBucketTasks("upcoming");
-
-        const todayColumn = grid.createDiv({ cls: "launchpad-action-column" });
-        const todayTitle = todayColumn.createDiv({ cls: "launchpad-action-column-title" });
-        if (overdueTasks.length > 0) {
-          todayTitle.createSpan({ text: `逾期 (${overdueTasks.length}) · 今天 (${todayTasks.length})` });
-        } else {
-          todayTitle.createSpan({ text: `今天 (${todayTasks.length})` });
-        }
-        const todayList = todayColumn.createDiv({ cls: "launchpad-action-list" });
         const focusTasks = [...overdueTasks, ...todayTasks];
-        if (!focusTasks.length) {
-          const next = [...getBucketTasks("anytime"), ...getBucketTasks("inbox")];
-          if (next.length) todayTitle.setText(`接下来 (${next.length})`);
-          this.renderActionItems(todayList, next, 5);
+        const nextTasks = focusTasks.length ? [] : [...getBucketTasks("anytime"), ...getBucketTasks("inbox")];
+        const nowColumn = focusTasks.length
+          ? { title: overdueTasks.length ? `逾期 (${overdueTasks.length}) · 今天 (${todayTasks.length})` : `今天 (${todayTasks.length})`, items: focusTasks, limit: 8 }
+          : { title: `接下来 (${nextTasks.length})`, items: nextTasks, limit: 5 };
+        const laterTasks = [...waitingTasks, ...upcomingTasks];
+        const laterTitle = [["等待", waitingTasks.length], ["即将", upcomingTasks.length]]
+          .filter(([, count]) => count).map(([label, count]) => `${label} (${count})`).join(" · ");
+        const laterColumn = { title: laterTitle, items: laterTasks, limit: 8 };
+        /* 空的一栏不再占半屏：两栏都有才并排，只有一栏有就占满，都空只留一句。 */
+        const columns = [nowColumn, laterColumn].filter((column) => column.items.length);
+        if (!columns.length) {
+          this.renderEmpty(bodyWrap, "今天和近期都没有行动");
         } else {
-          this.renderActionItems(todayList, focusTasks, 8);
+          if (columns.length === 1 && !focusTasks.length) {
+            bodyWrap.createDiv({ cls: "launchpad-action-note", text: "今天没有排期的行动" });
+          }
+          const grid = bodyWrap.createDiv({ cls: `launchpad-action-grid${columns.length === 1 ? " is-single" : ""}` });
+          for (const column of columns) {
+            const columnEl = grid.createDiv({ cls: "launchpad-action-column" });
+            columnEl.createDiv({ cls: "launchpad-action-column-title" }).createSpan({ text: column.title });
+            this.renderActionItems(columnEl.createDiv({ cls: "launchpad-action-list" }), column.items, column.limit);
+          }
         }
-
-        const laterColumn = grid.createDiv({ cls: "launchpad-action-column" });
-        const laterTitle = laterColumn.createDiv({ cls: "launchpad-action-column-title" });
-        laterTitle.createSpan({ text: `等待 (${waitingTasks.length}) · 即将 (${upcomingTasks.length})` });
-        const laterList = laterColumn.createDiv({ cls: "launchpad-action-list" });
-        this.renderActionItems(laterList, [...waitingTasks, ...upcomingTasks], 8);
 
       } else {
         const empty = {
@@ -2147,11 +2170,12 @@ class LaunchpadRenderer {
     if (!kpis.length) return;
     const grid = parent.createDiv({ cls: "launchpad-kpi-row" });
     for (const [value, label, subtitle, target] of kpis) {
-      const card = grid.createDiv({ cls: "launchpad-kpi-box" });
+      /* 分布写进悬停提示，卡片上只留名字和数，窄栏也不截断。 */
+      const card = grid.createDiv({ cls: `launchpad-kpi-box${value ? "" : " is-zero"}` });
       card.createDiv({ cls: "launchpad-kpi-label", text: label });
       card.createDiv({ cls: "launchpad-kpi-val", text: String(value) });
-      card.createDiv({ cls: "launchpad-kpi-sub", text: subtitle });
-      makeClickable(card, () => this.view.openTarget(target, label), `${label}（${subtitle}）`);
+      card.setAttribute("data-tooltip-position", "top");
+      makeClickable(card, () => this.view.openTarget(target, label), subtitle && subtitle !== "—" ? `${label}：${subtitle}` : label);
     }
   }
 
@@ -2194,7 +2218,9 @@ class LaunchpadRenderer {
         [String(tasks), "完成任务"],
       ]) {
         const cell = stats.createDiv({ cls: "launchpad-pulse-stat" });
-        cell.createDiv({ cls: "launchpad-today-value", text: value });
+        const [number, unit] = splitValueUnit(value);
+        const valueEl = cell.createDiv({ cls: "launchpad-today-value", text: number });
+        if (unit) valueEl.createSpan({ cls: "launchpad-today-unit", text: unit });
         cell.createDiv({ cls: "launchpad-today-label", text: label });
       }
       const max = Math.max(1, ...recorded.map((day) => Number(day.score) || 0));
@@ -2207,6 +2233,18 @@ class LaunchpadRenderer {
         bar.style.height = day.recorded ? `${Math.max(4, Math.round((score / max) * 100))}%` : "100%";
         bar.setAttribute("aria-label", day.recorded ? `${day.date} · ${formatScore(score)} 分` : `${day.date} · 未记录`);
         bar.setAttribute("data-tooltip-position", "top");
+      }
+      /* 和 Pulse 的曲线一样，左右两端标出起止日期，柱子才读得出是哪段时间。 */
+      const dayText = (key) => {
+        if (!isDateKey(key)) return "";
+        if (key === dateKey(new Date())) return "今天";
+        const [, month, day] = key.split("-").map(Number);
+        return `${month}月${day}日`;
+      };
+      if (days.length > 1) {
+        const axis = body.createDiv({ cls: "launchpad-pulse-axis" });
+        axis.createSpan({ text: dayText(days[0].date) });
+        axis.createSpan({ text: dayText(days[days.length - 1].date) });
       }
     };
     for (const range of RHYTHM_DAY_OPTIONS) {
@@ -2287,7 +2325,7 @@ class LaunchpadRenderer {
           const left = row.createDiv({ cls: "launchpad-row-left" });
           left.createDiv({ cls: "launchpad-row-title", text: pageLabel(page) });
           const right = row.createDiv({ cls: "launchpad-row-right" });
-          if (page.platform) right.createSpan({ text: page.platform });
+          if (page.platform) right.createSpan({ text: platformLabel(page.platform) });
           right.createSpan({ cls: "launchpad-badge", text: formatShortDate(publicationTimestamp(page)) });
           makeClickable(row, () => this.view.openTarget(page.path, page.title), `打开产出：${page.title}`);
         }
@@ -2353,8 +2391,12 @@ class LaunchpadRenderer {
     if (!items.length) return;
     const strip = parent.createDiv({ cls: "launchpad-today-strip" });
     for (const item of items) {
-      const cell = strip.createDiv({ cls: `launchpad-today-item${item.warn ? " is-warning" : ""}` });
-      cell.createDiv({ cls: "launchpad-today-value", text: item.value });
+      const zero = item.value === "0" || item.value === "0 天";
+      const cell = strip.createDiv({ cls: `launchpad-today-item${item.warn ? " is-warning" : ""}${zero ? " is-zero" : ""}` });
+      /* 和 Pulse 一样，数字大、单位小：「16 天」拆成数字和单位。 */
+      const [number, unit] = splitValueUnit(item.value);
+      const valueEl = cell.createDiv({ cls: "launchpad-today-value", text: number });
+      if (unit) valueEl.createSpan({ cls: "launchpad-today-unit", text: unit });
       const caption = cell.createDiv({ cls: "launchpad-today-caption" });
       addIcon(caption, item.icon).setAttribute("aria-hidden", "true");
       caption.createSpan({ cls: "launchpad-today-label", text: item.label });
@@ -2554,7 +2596,7 @@ class LaunchpadRenderer {
     const flowCard = this.panels.create.createDiv({ cls: "launchpad-card" });
     const flowHeader = flowCard.createDiv({ cls: "launchpad-card-header" });
     const flowTitle = flowHeader.createDiv({ cls: "launchpad-card-title" });
-    addIcon(flowTitle, "content");
+    addIcon(flowTitle, "workflow");
     flowTitle.createSpan({ text: "内容流向" });
     flowHeader.createDiv({ cls: "launchpad-badge", text: `共 ${articles.length} 个内容项目` });
     const total = buckets.reduce((sum, [, rows]) => sum + rows.length, 0);
@@ -2584,7 +2626,7 @@ class LaunchpadRenderer {
     const pipeline = this.panels.create.createDiv({ cls: "launchpad-card" });
     const pipelineHeader = pipeline.createDiv({ cls: "launchpad-card-header launchpad-pipeline-header" });
     const pipelineTitle = pipelineHeader.createDiv({ cls: "launchpad-card-title" });
-    addIcon(pipelineTitle, "content");
+    addIcon(pipelineTitle, "kanban");
     pipelineTitle.createSpan({ text: "创作流水线" });
     const pipelineActions = pipelineHeader.createDiv({ cls: "launchpad-actions" });
     const newProjectButton = addButton(pipelineActions, "新建项目", "launchpad-btn is-primary");
@@ -2615,22 +2657,22 @@ class LaunchpadRenderer {
     }
     const list = pipeline.createDiv({ cls: "launchpad-breakdown-card" });
     for (const [stage, rows] of buckets) {
-      const groupRow = list.createDiv({ cls: "launchpad-breakdown-row" });
+      const groupRow = list.createDiv({ cls: "launchpad-breakdown-row launchpad-stage-head" });
       stageGroups.set(stage, groupRow);
-      const prePublish = STAGE_ORDER.indexOf(stage) >= 0 && STAGE_ORDER.indexOf(stage) < STAGE_ORDER.indexOf("reviewing");
+      const stageIndex = STAGE_ORDER.indexOf(stage);
+      const prePublish = stageIndex >= 0 && stageIndex < STAGE_ORDER.indexOf("reviewing");
+      /* 阶段自带的状态（发布前是草稿、发布后是已发布）不再每行重复，只标出例外（搁置、废弃等）。 */
+      const impliedStatus = stageIndex < 0 ? "" : prePublish ? "draft" : "published";
       const groupLeft = groupRow.createDiv({ cls: "launchpad-row-left" });
-      groupLeft.createDiv({
-        cls: `launchpad-badge${stage === "reviewing" ? " is-accent" : ""}`,
-        text: STAGE_LABEL[stage] || stage,
-      });
-      groupLeft.createDiv({ cls: "launchpad-row-title", text: `${rows.length} 篇` });
+      groupLeft.createDiv({ cls: "launchpad-stage-name", text: STAGE_LABEL[stage] || stage });
+      groupLeft.createDiv({ cls: "launchpad-stage-count", text: `${rows.length} 篇` });
       const stageList = list.createDiv({ cls: "launchpad-stage-items" });
       const renderArticle = (article) => {
         const row = stageList.createDiv({ cls: "launchpad-breakdown-row" });
         const left = row.createDiv({ cls: "launchpad-row-left" });
         left.createDiv({ cls: "launchpad-row-title", text: articleLabel(article) });
         const right = row.createDiv({ cls: "launchpad-row-right" });
-        if (article.platform) right.createSpan({ text: article.platform });
+        if (article.platform) right.createSpan({ text: platformLabel(article.platform) });
         /* 几天没动：内容快照的 updated_at，没有时用文件修改时间。 */
         const updated = updatedByDir.get(article.folder);
         const idle = daysBetween(today, Number.isFinite(updated) ? updated : article.mtime);
@@ -2646,7 +2688,9 @@ class LaunchpadRenderer {
           right.createSpan({ cls: `launchpad-action-due ${publish.tone}`.trim(), text: publish.text })
             .setAttribute("title", `计划发布 ${control.planned_publish_at}`);
         }
-        if (article.status) right.createSpan({ cls: "launchpad-badge", text: contentStatusLabel(article.status) });
+        if (article.status && article.status.toLowerCase() !== impliedStatus) {
+          right.createSpan({ cls: "launchpad-status-chip", text: contentStatusLabel(article.status) });
+        }
         const advance = addButton(right, "推进", "launchpad-row-action");
         advance.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -2730,7 +2774,7 @@ class LaunchpadRenderer {
     title.createSpan({ cls: "launchpad-badge", text: `${active.length} 篇` });
     const counts = new Map();
     for (const page of active) {
-      const type = page.type || "未标类型";
+      const type = pageTypeLabel(page.type);
       counts.set(type, (counts.get(type) || 0) + 1);
     }
     const chips = card.createDiv({ cls: "launchpad-action-group-buttons" });
@@ -2747,7 +2791,7 @@ class LaunchpadRenderer {
       const left = row.createDiv({ cls: "launchpad-row-left" });
       left.createDiv({ cls: "launchpad-row-title", text: page.name });
       const right = row.createDiv({ cls: "launchpad-row-right" });
-      right.createSpan({ text: page.type || "未标类型" });
+      right.createSpan({ text: pageTypeLabel(page.type) });
       right.createSpan({ cls: "launchpad-badge", text: formatDateTime(page.mtime) });
       makeClickable(row, () => this.view.openTarget(page.path, page.name), `打开：${page.name}`);
     }
@@ -2795,10 +2839,11 @@ class LaunchpadRenderer {
       [writebacks.length, "待回写与复核", "判断哪些产出需要沉淀"],
       [staleInbox.length, STALE_INBOX_LABEL, "ANKS 健康检查列出的积压"],
     ]) {
-      const metric = metrics.createDiv({ cls: "launchpad-review-metric" });
+      const metric = metrics.createDiv({ cls: `launchpad-review-metric${value ? "" : " is-zero"}` });
       metric.createDiv({ cls: "launchpad-review-metric-value", text: String(value) });
       metric.createDiv({ cls: "launchpad-review-metric-label", text: label });
-      metric.createDiv({ cls: "launchpad-review-metric-detail", text: detail });
+      metric.setAttribute("aria-label", detail);
+      metric.setAttribute("data-tooltip-position", "top");
     }
 
     const grid = this.panels.review.createDiv({ cls: "launchpad-grid-2" });
@@ -2848,16 +2893,16 @@ class LaunchpadRenderer {
     if (!writebacks.length) {
       this.renderEmpty(knowledgeList, "当前没有待回写或待复核项");
     } else {
+      /* 分类都一样时每行再写一遍是噪音，只在混着几类时标出来。 */
+      const mixed = new Set(writebacks.map(reviewFindingCategory)).size > 1;
       for (const finding of writebacks.slice(0, 7)) {
         const path = textOr(finding.path || finding.evidence?.path);
+        const label = this.findingLabel(finding);
         const row = knowledgeList.createDiv({ cls: "launchpad-breakdown-row" });
         const left = row.createDiv({ cls: "launchpad-row-left" });
-        left.createDiv({
-          cls: "launchpad-row-title",
-          text: findingBasename(finding),
-        });
-        row.createDiv({ cls: "launchpad-row-right", text: reviewFindingCategory(finding) });
-        makeClickable(row, () => this.view.openTarget(path, findingBasename(finding)));
+        left.createDiv({ cls: "launchpad-row-title", text: label });
+        if (mixed) row.createDiv({ cls: "launchpad-row-right", text: reviewFindingCategory(finding) });
+        makeClickable(row, () => this.view.openTarget(path, label), `打开：${label}`);
       }
     }
 
@@ -2875,13 +2920,16 @@ class LaunchpadRenderer {
     if (!staleInbox.length) {
       this.renderEmpty(inboxList, "当前没有需要重新检查的收件箱条目");
     } else {
+      const now = new Date();
       for (const finding of staleInbox.slice(0, 7)) {
         const path = textOr(finding.path || finding.evidence?.path);
+        const label = this.findingLabel(finding);
         const row = inboxList.createDiv({ cls: "launchpad-breakdown-row" });
         const left = row.createDiv({ cls: "launchpad-row-left" });
-        left.createDiv({ cls: "launchpad-row-title", text: findingBasename(finding) });
-        row.createDiv({ cls: "launchpad-row-right", text: "待整理" });
-        makeClickable(row, () => this.view.openTarget(path, findingBasename(finding)));
+        left.createDiv({ cls: "launchpad-row-title", text: label });
+        const age = daysBetween(now, this.findingPage(finding)?.mtime);
+        if (age !== null) row.createDiv({ cls: "launchpad-row-right", text: `${age} 天前` });
+        makeClickable(row, () => this.view.openTarget(path, label), `打开：${label}`);
       }
     }
 
@@ -2889,7 +2937,7 @@ class LaunchpadRenderer {
       const projectCard = reviewGrid.createDiv({ cls: "launchpad-card" });
       const projectHeader = projectCard.createDiv({ cls: "launchpad-card-header" });
       const projectTitle = projectHeader.createDiv({ cls: "launchpad-card-title" });
-      addIcon(projectTitle, "content");
+      addIcon(projectTitle, "clipboard-check");
       projectTitle.createSpan({ text: "内容项目复盘" });
       projectHeader.createDiv({
         cls: `launchpad-badge${reviewingProjects.length ? " is-accent" : ""}`,
@@ -2907,7 +2955,6 @@ class LaunchpadRenderer {
           const left = row.createDiv({ cls: "launchpad-row-left" });
           left.createDiv({ cls: "launchpad-row-title", text: label });
           const right = row.createDiv({ cls: "launchpad-row-right" });
-          right.createSpan({ cls: "launchpad-badge", text: stageLabel("reviewing") });
           const advance = addButton(right, "复盘", "launchpad-row-action");
           advance.addEventListener("click", (event) => {
             event.stopPropagation();
@@ -2943,13 +2990,13 @@ class LaunchpadRenderer {
     if (capabilities.hasIndex) items.push(["开始使用", "系统入口与日常动作", "book", "Start Here.md"]);
     for (const topic of capabilities.topics || []) {
       const entry = capabilities.perTopic?.[topic] || {};
-      if (entry.dashboardPath) items.push([`${topic} 大盘`, "Topic 工作总览", "content", entry.dashboardPath]);
-      if (entry.basePath) items.push([`${topic} 总览`, "多维筛选视图", "project", entry.basePath]);
+      if (entry.dashboardPath) items.push([`${topic} 大盘`, "Topic 工作总览", "layout-dashboard", entry.dashboardPath]);
+      if (entry.basePath) items.push([`${topic} 总览`, "多维筛选视图", "table", entry.basePath]);
       if (entry.contentProjectsPath) {
         items.push([
           `${topic} 内容项目`,
           "项目清单与生产记录",
-          "content",
+          "folder-kanban",
           entry.contentIndexPath || entry.contentProjectsPath,
         ]);
       }
@@ -3112,6 +3159,17 @@ class LaunchpadRenderer {
         });
       }
     }
+  }
+
+  /* 问题对应的笔记还在库里时按笔记显示名（稿件用正文标题），找不到再退回文件名。 */
+  findingPage(finding) {
+    if (!this.pageByPath) this.pageByPath = new Map((this.pages || []).map((page) => [page.path, page]));
+    return this.pageByPath.get(textOr(finding?.path || finding?.evidence?.path)) || null;
+  }
+
+  findingLabel(finding) {
+    const page = this.findingPage(finding);
+    return page ? pageLabel(page) : findingBasename(finding);
   }
 
   renderEmpty(container, message) {
@@ -5727,6 +5785,8 @@ module.exports.VIEW_TYPE_LAUNCHPAD = VIEW_TYPE_LAUNCHPAD;
 module.exports.VIEW_TYPE_PANEL = VIEW_TYPE_PANEL;
 module.exports.normalizeBookmarkEntries = normalizeBookmarkEntries;
 module.exports.pageLabel = pageLabel;
+module.exports.platformLabel = platformLabel;
+module.exports.splitValueUnit = splitValueUnit;
 module.exports.capturedToday = capturedToday;
 module.exports.isRouterIgnoredPath = isRouterIgnoredPath;
 module.exports.isSettledInboxStatus = isSettledInboxStatus;
